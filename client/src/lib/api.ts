@@ -90,5 +90,13 @@ export const api = {
   getApplication:      (id: number) => apiFetch(`/api/admin/applications/${id}`),
   updateApplication:   (id: number, patch: any) => apiFetch(`/api/admin/applications/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   submitApplication:   (id: number) => apiFetch(`/api/admin/applications/${id}/submit`, { method: "POST" }),
+  confirmApplication:  (id: number, subject?: string) => apiFetch(`/api/admin/applications/${id}/confirm`, { method: "POST", body: JSON.stringify(subject ? { subject } : {}) }),
+  unconfirmApplication:(id: number) => apiFetch(`/api/admin/applications/${id}/confirm`, { method: "DELETE" }),
   withdrawApplication: (id: number) => apiFetch(`/api/admin/applications/${id}`, { method: "DELETE" }),
+  exportApplicationsCSV: () => {
+    const token = getToken();
+    // Open in new tab to trigger download; works with Bearer auth via fetch-then-blob
+    return fetch("/api/admin/applications/export.csv", { headers: token ? { authorization: `Bearer ${token}` } : {}, credentials: "include" })
+      .then((r) => { if (!r.ok) throw new Error("export failed: " + r.status); return r.blob(); });
+  },
 };

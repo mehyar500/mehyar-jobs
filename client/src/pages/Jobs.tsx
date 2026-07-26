@@ -101,17 +101,17 @@ export default function Jobs() {
       qc.invalidateQueries({ queryKey: ["applications"] });
       setApplyStage((s) => ({ ...s, [jobId]: "idle" }));
     } catch (e: any) {
-      setApplyStage((s) => ({ ...s, [jobId]: "error" }));
+      setApplyStage((s) => ({ ...s, [jobId as number]: "error" }));
       toast.push({ kind: "error", title: "Could not generate draft", message: e?.body?.error || e?.message });
     }
   };
 
   const submitApply = async (id: number, jobId?: number) => {
-    setApplyStage((s) => ({ ...s, [jobId]: "submitting" }));
+    setApplyStage((s) => ({ ...s, [jobId as number]: "submitting" }));
     setDraftResult(null);
     try {
       const r = await api.submitApplication(id);
-      setApplyStage((s) => ({ ...s, [jobId]: "submitted" }));
+      setApplyStage((s) => ({ ...s, [jobId as number]: "submitted" }));
       qc.invalidateQueries({ queryKey: ["applications"] });
       qc.invalidateQueries({ queryKey: ["jobs"] });
 
@@ -141,7 +141,7 @@ export default function Jobs() {
         });
       }
     } catch (e: any) {
-      setApplyStage((s) => ({ ...s, [jobId]: "error" }));
+      setApplyStage((s) => ({ ...s, [jobId as number]: "error" }));
       toast.push({ kind: "error", title: "Submit failed", message: e?.body?.error || e?.message });
     }
   };

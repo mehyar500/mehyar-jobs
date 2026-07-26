@@ -32,15 +32,30 @@ export async function onRequestGet({ request, env }) {
 
   const where = ["1=1"];
   const binds = [];
-  if (status) { where.push("a.status = ?"); binds.push(status); }
+  if (status === "confirmed") {
+    // special: applications the company has confirmed receipt of
+    where.push("a.company_confirmed_at IS NOT NULL");
+  } else if (status === "unconfirmed") {
+    // submitted but no company reply yet
+    where.push("a.status = 'submitted' AND a.company_confirmed_at IS NULL");
+  } else if (status === "no_reply_3d") {
+    // submitted 3+ days ago, no company reply
+    where.push("a.status = 'submitted' AND a.company_confirmed_at IS NULL AND julianday('now') - julianday(a.submitted_at) >= 3");
+  } else if (status) {
+    where.push("a.status = ?");
+    binds.push(status);
+  }
 
-  const sql = `
+    const sql = `
     SELECT
       a.id, a.job_id, a.status, a.cover_letter, a.custom_answers, a.notes,
       a.submission_method, a.submission_url, a.created_at, a.updated_at, a.submitted_at,
       a.email_sent_at, a.email_id,
+      a.company_confirmed_at, a.company_confirmed_source, a.company_email_subject,
+      a.tracking_email, a.next_action_at, a.follow_up_count,
+      jf.score AS job_score,
       j.title AS job_title, j.url AS job_url, j.location AS job_location,
-      j.remote_policy AS job_remote_policy, jf.score AS job_score,
+      j.remote_policy AS job_remote_policy,
       c.id AS company_id, c.name AS company_name, c.slug AS company_slug,
       c.industry AS company_industry, c.careers_url AS company_careers_url
     FROM application a
@@ -49,7 +64,7 @@ export async function onRequestGet({ request, env }) {
     LEFT JOIN job_fit jf ON jf.job_id = j.id
     WHERE ${where.join(" AND ")}
     ORDER BY a.updated_at DESC
-    LIMIT 200
+    LIMIT 500
   `;
   const rows = (await env.JOBS_DB.prepare(sql).bind(...binds).all().catch(() => ({ results: [] }))).results || [];
   return json({ ok: true, items: rows.map((r) => ({ ...r, custom_answers: safeJson(r.custom_answers, {}) })) }, 200, request, env);

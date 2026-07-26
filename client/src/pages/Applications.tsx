@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { api } from "../lib/api";
+import { useToast } from "../lib/toast";
 
 function relativeTime(s?: string | null) {
   if (!s) return "—";
@@ -18,6 +19,7 @@ function relativeTime(s?: string | null) {
 
 export function ApplicationsList() {
   const qc = useQueryClient();
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState<string>("");
   const appsQ = useQuery({
     queryKey: ["applications", statusFilter],
@@ -25,15 +27,35 @@ export function ApplicationsList() {
     refetchInterval: 30_000,
   });
 
+  const onExport = async () => {
+    try {
+      const blob = await api.exportApplicationsCSV();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mehyar-jobs-applications-${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.push({ kind: "success", title: "CSV downloaded", message: "Saved to your Downloads folder." });
+    } catch (e: any) {
+      toast.push({ kind: "error", title: "Export failed", message: e?.message });
+    }
+  };
+
   const items: any[] = appsQ.data?.items || [];
   const counts = useMemo(() => {
     const all = appsQ.data?.items || [];
     return {
-      all:        all.length,
-      draft:      all.filter((a: any) => a.status === "draft").length,
-      submitted:  all.filter((a: any) => a.status === "submitted").length,
-      failed:     all.filter((a: any) => a.status === "failed").length,
-      withdrawn:  all.filter((a: any) => a.status === "withdrawn").length,
+      all:         all.length,
+      draft:       all.filter((a: any) => a.status === "draft").length,
+      submitted:   all.filter((a: any) => a.status === "submitted").length,
+      confirmed:   all.filter((a: any) => !!a.company_confirmed_at).length,
+      unconfirmed: all.filter((a: any) => a.status === "submitted" && !a.company_confirmed_at).length,
+      no_reply_3d: all.filter((a: any) => a.status === "submitted" && !a.company_confirmed_at && a.submitted_at && (Date.now() - Date.parse(a.submitted_at) > 3*86400000)).length,
+      failed:      all.filter((a: any) => a.status === "failed").length,
+      withdrawn:   all.filter((a: any) => a.status === "withdrawn").length,
     };
   }, [appsQ.data]);
 
@@ -50,16 +72,23 @@ export function ApplicationsList() {
         </div>
         <div className="row wrap" style={{ marginTop: 12, gap: 6 }}>
           {[
-            ["", "all", counts.all],
-            ["draft", "drafts", counts.draft],
-            ["submitted", "submitted", counts.submitted],
-            ["failed", "failed", counts.failed],
-            ["withdrawn", "withdrawn", counts.withdrawn],
+            ["",            "all",                    counts.all],
+            ["draft",       "📝 drafts",              counts.draft],
+            ["submitted",   "📤 submitted",           counts.submitted],
+            ["confirmed",   "✅ company confirmed",   counts.confirmed],
+            ["unconfirmed", "⏳ no reply yet",        counts.unconfirmed],
+            ["no_reply_3d", "🕓 3+ days no reply",    counts.no_reply_3d],
+            ["failed",      "❌ failed",               counts.failed],
+            ["withdrawn",   "🚫 withdrawn",           counts.withdrawn],
           ].map(([k, label, n]: any) => (
             <button key={k} className={`tab ${statusFilter === k ? "active" : ""}`} onClick={() => setStatusFilter(k)}>
               {label} ({n})
             </button>
           ))}
+          <span className="grow" />
+          <button className="btn btn-sm" onClick={onExport} title="Download a CSV of every application">
+            ⬇️ Export CSV
+          </button>
         </div>
       </div>
 
@@ -76,35 +105,51 @@ export function ApplicationsList() {
             <a href="/" className="btn btn-primary" style={{ textDecoration: "none", marginTop: 8 }}>Browse jobs →</a>
           </div>
         ) : (
-          <table>
+          <table className="responsive-table">
             <thead>
               <tr>
                 <th>Job</th>
                 <th>Company</th>
                 <th>Status</th>
-                <th>Updated</th>
                 <th>Submitted</th>
-                <th>Email</th>
+                <th>Company reply</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((a: any) => (
-                <tr key={a.id}>
-                  <td>
-                    <a href={`/applications/${a.id}`} style={{ color: "inherit", textDecoration: "none" }}>
-                      <div className="h3">{a.job_title}</div>
-                      <div className="xs dim">{a.job_location || "—"}{a.job_remote_policy && a.job_remote_policy !== "unknown" ? " · " + a.job_remote_policy : ""}</div>
-                    </a>
-                  </td>
-                  <td>
-                    <a href={`/companies?q=${encodeURIComponent(a.company_name)}`} style={{ color: "inherit", textDecoration: "none" }}>{a.company_name}</a>
-                  </td>
-                  <td><StatusTag status={a.status} /></td>
-                  <td className="sm dim">{relativeTime(a.updated_at)}</td>
-                  <td className="sm dim">{a.submitted_at ? relativeTime(a.submitted_at) : "—"}</td>
-                  <td className="sm dim">{a.email_sent_at ? "✓ " + relativeTime(a.email_sent_at) : (a.email_id ? "✓" : (a.status === "submitted" ? "—" : ""))}</td>
-                </tr>
-              ))}
+              {items.map((a: any) => {
+                const daysSince = a.submitted_at ? Math.floor((Date.now() - Date.parse(a.submitted_at)) / 86400000) : null;
+                return (
+                  <tr key={a.id}>
+                    <td data-label="Job">
+                      <a href={`/applications/${a.id}`} style={{ color: "inherit", textDecoration: "none" }}>
+                        <div className="h3">{a.job_title}</div>
+                        <div className="xs dim">{a.job_location || "—"}{a.job_remote_policy && a.job_remote_policy !== "unknown" ? " · " + a.job_remote_policy : ""}</div>
+                      </a>
+                    </td>
+                    <td data-label="Company">
+                      <a href={`/companies?q=${encodeURIComponent(a.company_name)}`} style={{ color: "inherit", textDecoration: "none" }}>{a.company_name}</a>
+                    </td>
+                    <td data-label="Status"><StatusTag status={a.status} confirmedAt={a.company_confirmed_at} daysSince={daysSince} /></td>
+                    <td data-label="Submitted" className="sm dim">
+                      {a.submitted_at ? relativeTime(a.submitted_at) : <span className="dim">—</span>}
+                      {daysSince != null && daysSince >= 3 && !a.company_confirmed_at ? <div className="xs" style={{ color: "var(--warn)" }}>⚠ {daysSince}d no reply</div> : null}
+                    </td>
+                    <td data-label="Company reply" className="sm">
+                      {a.company_confirmed_at ? (
+                        <div>
+                          <div className="status-pill submitted">✅ confirmed</div>
+                          <div className="xs dim" style={{ marginTop: 2 }}>{relativeTime(a.company_confirmed_at)}</div>
+                          {a.company_email_subject ? <div className="xs dim" style={{ marginTop: 2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.company_email_subject}>"{a.company_email_subject}"</div> : null}
+                        </div>
+                      ) : a.status === "submitted" ? (
+                        <a href={`/applications/${a.id}`} className="status-pill draft" style={{ textDecoration: "none" }}>⏳ waiting</a>
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -117,12 +162,14 @@ export function ApplicationDetail() {
   const params = useParams<{ id: string }>();
   const [, setLoc] = useLocation();
   const qc = useQueryClient();
+  const toast = useToast();
   const id = parseInt(params.id, 10);
   const [editing, setEditing] = useState(false);
   const [cover, setCover] = useState("");
   const [notes, setNotes] = useState("");
   const [answerEdits, setAnswerEdits] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [confirmSubject, setConfirmSubject] = useState("");
 
   const appQ = useQuery({
     queryKey: ["application", id],
@@ -183,6 +230,28 @@ export function ApplicationDetail() {
     qc.invalidateQueries({ queryKey: ["applications"] });
   };
 
+  const markCompanyConfirmed = async () => {
+    setBusy(true);
+    try {
+      await api.confirmApplication(id, confirmSubject || undefined);
+      qc.invalidateQueries({ queryKey: ["application", id] });
+      qc.invalidateQueries({ queryKey: ["applications"] });
+      setConfirmSubject("");
+      toast.push({ kind: "success", title: "✅ Company reply recorded", message: "Marked as confirmed. This row will now show in the 'company confirmed' filter." });
+    } catch (e: any) {
+      toast.push({ kind: "error", title: "Failed to record confirmation", message: e?.body?.error || e?.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unconfirm = async () => {
+    if (!confirm("Undo the company confirmation? This will set it back to 'awaiting reply'.")) return;
+    await api.unconfirmApplication(id);
+    qc.invalidateQueries({ queryKey: ["application", id] });
+    qc.invalidateQueries({ queryKey: ["applications"] });
+  };
+
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="card">
@@ -195,12 +264,12 @@ export function ApplicationDetail() {
               at <strong>{app.company_name}</strong> · {app.job_location || "—"}{app.job_remote_policy && app.job_remote_policy !== "unknown" ? " · " + app.job_remote_policy : ""} · Fit {app.job_score ?? "—"}
             </div>
             <div className="sm muted" style={{ marginTop: 4 }}>
-              <StatusTag status={app.status} />
+              <StatusTag status={app.status} confirmedAt={app.company_confirmed_at} daysSince={app.submitted_at ? Math.floor((Date.now() - Date.parse(app.submitted_at))/86400000) : null} />
               {app.submitted_at ? <> · submitted {relativeTime(app.submitted_at)}</> : null}
-              {app.email_sent_at ? <> · ✓ email sent {relativeTime(app.email_sent_at)}</> : null}
+              {app.company_confirmed_at ? <> · ✅ company confirmed {relativeTime(app.company_confirmed_at)}</> : null}
             </div>
           </div>
-          <div className="row" style={{ gap: 6 }}>
+          <div className="row wrap" style={{ gap: 6 }}>
             {app.status === "draft" && (
               <button className="btn btn-primary" onClick={submit} disabled={busy} data-testid="submit-detail-btn">
                 📤 Submit & email me
@@ -215,6 +284,46 @@ export function ApplicationDetail() {
           </div>
         </div>
       </div>
+
+      {/* Company confirmation — the user clicks this when the 3rd-party email arrives */}
+      {(app.status === "submitted" || app.status === "failed") && (
+        <div className="card" style={{ borderColor: app.company_confirmed_at ? "var(--good)" : "var(--border)" }}>
+          <h2 className="h2">📨 Did the company confirm?</h2>
+          {app.company_confirmed_at ? (
+            <>
+              <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: "wrap" }}>
+                <span className="status-pill submitted">✅ confirmed {relativeTime(app.company_confirmed_at)}</span>
+                <span className="tag tag-zinc xs">{app.company_confirmed_source === "auto_email" ? "auto-detected" : "manually marked"}</span>
+              </div>
+              {app.company_email_subject ? <div className="sm muted" style={{ marginTop: 8 }}>Subject: "{app.company_email_subject}"</div> : null}
+              {(() => {
+                const days = app.submitted_at ? Math.floor((Date.parse(app.company_confirmed_at) - Date.parse(app.submitted_at)) / 86400000) : null;
+                return days != null ? <div className="xs dim" style={{ marginTop: 4 }}>Replied {days} day{days === 1 ? "" : "s"} after you submitted</div> : null;
+              })()}
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={unconfirm} disabled={busy}>Undo confirmation</button>
+            </>
+          ) : (
+            <>
+              <p className="sm muted" style={{ marginTop: 4 }}>
+                Once you see the "thank you for applying" email in your inbox, click below to mark this row as confirmed.
+                We track what you submitted; the company is the source of truth for replies.
+              </p>
+              <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Subject line (optional) — e.g. 'Thank you for applying to OpenAI'"
+                  value={confirmSubject}
+                  onChange={(e) => setConfirmSubject(e.target.value)}
+                  style={{ flex: 1, minWidth: 220 }}
+                />
+                <button className="btn btn-primary" onClick={markCompanyConfirmed} disabled={busy} data-testid="mark-confirmed-btn">
+                  ✅ I got the company's email
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Cover letter */}
       <div className="card">
@@ -281,10 +390,22 @@ export function ApplicationDetail() {
   );
 }
 
-function StatusTag({ status }: { status: string }) {
+function StatusTag({ status, confirmedAt, daysSince }: { status: string; confirmedAt?: string | null; daysSince?: number | null }) {
+  if (status === "submitted" && confirmedAt) {
+    return <span className="status-pill submitted" title={`confirmed ${daysSince}d after submit`}>✅ confirmed</span>;
+  }
+  if (status === "submitted" && daysSince != null && daysSince >= 3) {
+    return <span className="status-pill draft" title={`${daysSince} days since submitted, no reply`}>⏳ {daysSince}d no reply</span>;
+  }
+  if (status === "submitted") {
+    return <span className="status-pill submitting" title="awaiting company reply">⏳ awaiting reply</span>;
+  }
   const cls = {
-    draft: "tag-amber", submitted: "tag-emerald", failed: "tag-red",
-    withdrawn: "tag-zinc", submitting: "tag-sky",
-  }[status] || "tag-zinc";
-  return <span className={`tag ${cls} xs`}>{status}</span>;
+    draft: "status-pill draft",
+    failed: "status-pill failed",
+    withdrawn: "status-pill withdrawn",
+    submitting: "status-pill submitting",
+  }[status] || "status-pill withdrawn";
+  const label = { draft: "📝 draft", failed: "❌ failed", withdrawn: "🚫 withdrawn", submitting: "… submitting" }[status] || status;
+  return <span className={cls}>{label}</span>;
 }
