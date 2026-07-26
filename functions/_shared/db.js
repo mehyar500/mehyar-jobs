@@ -5,7 +5,7 @@
 // file is run inside a try-catch (CREATE IF NOT EXISTS) and its name
 // is recorded in `__migrations` so we don't re-apply.
 
-import { MIGRATION_0001 } from "./migrations.js";
+import { MIGRATION_0001, MIGRATION_0002 } from "./migrations.js";
 
 const MIGRATIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS __migrations (
@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS __migrations (
 `;
 
 const MIGRATIONS = {
-  "0001_init.sql": MIGRATION_0001,
+  "0001_init.sql":          MIGRATION_0001,
+  "0002_applications.sql":  MIGRATION_0002,
 };
 
 export async function ensureSchema(env) {

@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { Route, Switch, Link, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { api, getToken, login, clearToken } from "./lib/api";
+import { ToastProvider } from "./lib/toast";
 import Jobs from "./pages/Jobs";
 import Companies from "./pages/Companies";
 import Profile from "./pages/Profile";
 import About from "./pages/About";
+import { ApplicationsList, ApplicationDetail } from "./pages/Applications";
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -14,10 +16,11 @@ const qc = new QueryClient({
 });
 
 const TABS = [
-  { key: "jobs",      label: "🎯 Jobs",      href: "/" },
-  { key: "companies", label: "🏢 Companies", href: "/companies" },
-  { key: "profile",   label: "🪪 Profile",   href: "/profile" },
-  { key: "about",     label: "ℹ️ How",       href: "/about" },
+  { key: "jobs",         label: "🎯 Jobs",         href: "/" },
+  { key: "applications", label: "📤 Applications", href: "/applications" },
+  { key: "companies",    label: "🏢 Companies",    href: "/companies" },
+  { key: "profile",      label: "🪪 Profile",      href: "/profile" },
+  { key: "about",        label: "ℹ️ How",          href: "/about" },
 ];
 
 function Header({ loggedIn, principal, onLogout }: any) {
@@ -126,6 +129,8 @@ function Shell() {
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/companies" component={Companies} />
+          <Route path="/applications" component={ApplicationsList} />
+          <Route path="/applications/:id" component={ApplicationDetail} />
           <Route path="/profile" component={Profile} />
           <Route path="/about" component={About} />
           <Route><div className="card"><h2 className="h2">404</h2></div></Route>
@@ -141,7 +146,9 @@ function Shell() {
 export default function App() {
   return (
     <QueryClientProvider client={qc}>
-      <Shell />
+      <ToastProvider>
+        <Shell />
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

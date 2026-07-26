@@ -31,9 +31,10 @@ export function getPrincipal(): any | null {
 // API base: same origin during dev/prod.
 export const API_BASE = "";
 
-// Public endpoints (no auth) live at /api/public/*. Admin endpoints at
-// /api/admin/*. Login is at /api/admin/auth/login on mehyar-web.
-const LOGIN_URL = "https://mehyar.us/api/admin/auth/login";
+// Auth endpoints on jobs.mehyar.us (same-origin, no CORS preflight).
+// The token issued here verifies on both mehyar-web and mehyar-jobs
+// because both apps share ADMIN_SESSION_SECRET.
+const LOGIN_URL = "/api/auth/login";
 
 export async function login(username: string, password: string) {
   const r = await fetch(LOGIN_URL, {
@@ -82,4 +83,12 @@ export const api = {
   jobs:         (q: any = {}) => apiFetch("/api/admin/jobs?" + new URLSearchParams(q).toString()),
   triggerScrape:() => apiFetch("/api/admin/cron/scrape", { method: "POST" }),
   triggerScore: () => apiFetch("/api/admin/cron/score",  { method: "POST" }),
+
+  // Applications
+  applications:        (status?: string) => apiFetch("/api/admin/applications" + (status ? "?status=" + encodeURIComponent(status) : "")),
+  draftApplication:    (job_id: number) => apiFetch("/api/admin/applications", { method: "POST", body: JSON.stringify({ job_id }) }),
+  getApplication:      (id: number) => apiFetch(`/api/admin/applications/${id}`),
+  updateApplication:   (id: number, patch: any) => apiFetch(`/api/admin/applications/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  submitApplication:   (id: number) => apiFetch(`/api/admin/applications/${id}/submit`, { method: "POST" }),
+  withdrawApplication: (id: number) => apiFetch(`/api/admin/applications/${id}`, { method: "DELETE" }),
 };

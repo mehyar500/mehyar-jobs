@@ -4,9 +4,9 @@
 // run right after a profile edit; also called by the daily scrape cron.
 // Cheap (~150µs per job in D1, ~few seconds for 5K jobs).
 
-import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../_shared/adminAuth.js";
-import { ensureSchema } from "../../_shared/db.js";
-import { scoreJob, loadProfile } from "../../_shared/fit.js";
+import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../_shared/adminAuth.js";
+import { ensureSchema } from "../../../_shared/db.js";
+import { scoreJob, loadProfile } from "../../../_shared/fit.js";
 
 export { onRequestOptions as onRequest };
 

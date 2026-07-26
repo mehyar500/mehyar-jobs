@@ -2,7 +2,7 @@
 // GET /api/public/stats    → no auth, returns public stats (companies, jobs, scraped-at)
 // GET /api/health          → no auth, health probe
 
-import { json, corsHeaders, onRequestOptions } from "../_shared/adminAuth.js";
+import { json, corsHeaders, onRequestOptions } from "../../_shared/adminAuth.js";
 
 export { onRequestOptions as onRequest };
 

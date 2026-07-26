@@ -4,10 +4,10 @@
 // summary; long-running work is logged in `scrape_run` table.
 // Auth: admin (shared JWT).
 
-import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../_shared/adminAuth.js";
-import { ensureSchema, recordScrapeRun } from "../../_shared/db.js";
-import { scrapeCompany } from "../../../scripts/scrapers/index.js";
-import { SEED_COMPANIES } from "../../../data/seed_companies.js";
+import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../_shared/adminAuth.js";
+import { ensureSchema, recordScrapeRun } from "../../../_shared/db.js";
+import { scrapeCompany } from "../../../_lib/scrapers/index.js";
+import { SEED_COMPANIES } from "../../../_lib/data/seed_companies.js";
 
 export { onRequestOptions as onRequest };
 

@@ -1,0 +1,116 @@
+// /api/admin/applications — collection + draft creation
+//   GET  /                     → list user's applications (latest first)
+//   POST /                     → create a draft application for a job
+//
+// /api/admin/applications/[id]  — single application CRUD
+//   GET    /api/admin/applications/{id}        → fetch + join job + company + events
+//   PATCH  /api/admin/applications/{id}        → update cover_letter / custom_answers / notes / status
+//   DELETE /api/admin/applications/{id}        → withdraw (soft delete; sets status="withdrawn")
+//
+// /api/admin/applications/[id]/submit
+//   POST /api/admin/applications/{id}/submit   → mark submitted + send email
+//
+// /api/admin/applications/[id]/events
+//   GET  /api/admin/applications/{id}/events   → audit trail
+
+import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../_shared/adminAuth.js";
+import { ensureSchema } from "../../_shared/db.js";
+import { loadProfile } from "../../_shared/fit.js";
+import { generateCoverLetter, generateCustomAnswers, matchCustomQuestions, extractQuestions } from "../../_shared/coverLetter.js";
+import { sendEmail, renderApplicationEmail } from "../../_shared/email.js";
+
+export { onRequestOptions as onRequest };
+
+export async function onRequestGet({ request, env }) {
+  const auth = await requireAdmin(request, env);
+  if (!auth.ok) return json({ ok: false, error: auth.message }, auth.status, request, env);
+  if (!env?.JOBS_DB) return json({ ok: false, error: "no_db" }, 500, request, env);
+
+  await ensureSchema(env);
+  const url = new URL(request.url);
+  const status = url.searchParams.get("status") || "";
+
+  const where = ["1=1"];
+  const binds = [];
+  if (status) { where.push("a.status = ?"); binds.push(status); }
+
+  const sql = `
+    SELECT
+      a.id, a.job_id, a.status, a.cover_letter, a.custom_answers, a.notes,
+      a.submission_method, a.submission_url, a.created_at, a.updated_at, a.submitted_at,
+      a.email_sent_at, a.email_id,
+      j.title AS job_title, j.url AS job_url, j.location AS job_location,
+      j.remote_policy AS job_remote_policy, jf.score AS job_score,
+      c.id AS company_id, c.name AS company_name, c.slug AS company_slug,
+      c.industry AS company_industry, c.careers_url AS company_careers_url
+    FROM application a
+    JOIN job j     ON j.id = a.job_id
+    JOIN company c ON c.id = j.company_id
+    LEFT JOIN job_fit jf ON jf.job_id = j.id
+    WHERE ${where.join(" AND ")}
+    ORDER BY a.updated_at DESC
+    LIMIT 200
+  `;
+  const rows = (await env.JOBS_DB.prepare(sql).bind(...binds).all().catch(() => ({ results: [] }))).results || [];
+  return json({ ok: true, items: rows.map((r) => ({ ...r, custom_answers: safeJson(r.custom_answers, {}) })) }, 200, request, env);
+}
+
+export async function onRequestPost({ request, env }) {
+  const auth = await requireAdmin(request, env);
+  if (!auth.ok) return json({ ok: false, error: auth.message }, auth.status, request, env);
+  if (!env?.JOBS_DB) return json({ ok: false, error: "no_db" }, 500, request, env);
+
+  await ensureSchema(env);
+  let body = {};
+  try { body = await request.json(); } catch { return json({ ok: false, error: "bad_json" }, 400, request, env); }
+  const jobId = parseInt(body.job_id, 10);
+  if (!jobId) return json({ ok: false, error: "job_id_required" }, 400, request, env);
+
+  // Fetch job + company + profile in one go
+  const job = await env.JOBS_DB.prepare(`
+    SELECT j.*, c.name AS company_name, c.industry, c.hq_country, c.hq_state, c.slug AS company_slug, c.careers_url
+    FROM job j JOIN company c ON c.id = j.company_id
+    WHERE j.id = ?
+  `).bind(jobId).first();
+  if (!job) return json({ ok: false, error: "job_not_found" }, 404, request, env);
+
+  const profile = await loadProfile(env);
+  const company = { name: job.company_name, industry: job.industry, hq_country: job.hq_country, hq_state: job.hq_state };
+  const coverLetter = body.cover_letter || generateCoverLetter({ profile, job, company });
+  const canonicalAnswers = generateCustomAnswers({ profile, job, company });
+  const questions = extractQuestions(job.description_text || "");
+  const matchedAnswers = matchCustomQuestions(questions, canonicalAnswers);
+  // Include all canonical answers in the map for completeness; user can override per-question
+  const customAnswers = body.custom_answers || { ...Object.fromEntries(matchedAnswers.map((m) => [m.q, m.a])), ...canonicalAnswers };
+
+  // Upsert: one application per job
+  const existing = await env.JOBS_DB.prepare("SELECT id FROM application WHERE job_id = ?").bind(jobId).first().catch(() => null);
+  let id;
+  if (existing) {
+    await env.JOBS_DB.prepare(`
+      UPDATE application SET cover_letter = ?, custom_answers = ?, updated_at = datetime('now'), status = CASE WHEN status = 'submitted' OR status = 'submitting' THEN status ELSE 'draft' END
+      WHERE id = ?
+    `).bind(coverLetter, JSON.stringify(customAnswers), existing.id).run().catch(() => null);
+    id = existing.id;
+  } else {
+    const r = await env.JOBS_DB.prepare(`
+      INSERT INTO application (job_id, status, cover_letter, custom_answers)
+      VALUES (?, 'draft', ?, ?)
+    `).bind(jobId, coverLetter, JSON.stringify(customAnswers)).run();
+    id = r?.meta?.last_row_id;
+  }
+  await env.JOBS_DB.prepare("INSERT INTO application_event (application_id, kind, detail) VALUES (?, ?, ?)")
+    .bind(id, existing ? "updated" : "created", `draft for job ${jobId}`).run().catch(() => null);
+
+  return json({
+    ok: true,
+    id,
+    cover_letter: coverLetter,
+    custom_answers: customAnswers,
+    matched_questions: matchedAnswers,
+    canonical_answers: canonicalAnswers,
+    questions_found: questions.length,
+  }, 200, request, env);
+}
+
+function safeJson(s, fb) { try { return JSON.parse(s); } catch { return fb; } }

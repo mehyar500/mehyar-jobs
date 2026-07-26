@@ -66,15 +66,20 @@ function parseCookies(req) {
   return out;
 }
 
-// Verify a JWT issued by mehyar-web using MESC_JWT_SECRET
+// Verify a token issued by mehyar-web using MESC_JWT_SECRET.
+//
+// mehyar-web login token shape (NOT a 3-part JWT — only 2 parts):
+//   `${base64url(payload_json)} . ${base64url(HMAC-SHA256(secret, payload))}`
+//   Payload: { sub: username, exp: <unix-seconds> }
+//   Signature: HMAC-SHA256(secret, payload) base64url
 export async function verifyToken(token, secret) {
   if (!token || typeof token !== "string") return { ok: false, message: "missing_token" };
   const parts = token.split(".");
-  if (parts.length !== 3) return { ok: false, message: "malformed_token" };
-  const [h, p, sig] = parts;
+  if (parts.length !== 2) return { ok: false, message: "malformed_token" };
+  const [p, sig] = parts;
 
   // Recompute signature
-  const expect = await hmac(secret, `${h}.${p}`);
+  const expect = await hmac(secret, p);
   if (!safeEq(expect, sig)) return { ok: false, message: "bad_signature" };
 
   // Parse + check exp

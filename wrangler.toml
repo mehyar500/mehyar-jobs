@@ -12,5 +12,13 @@ database_id = "de494f9a-9da2-4123-8bb7-269473cca8a6"
 [vars]
 APP_NAME = "mehyar-jobs"
 APP_HOST = "jobs.mehyar.us"
+# Username + password used by /api/auth/login (login.js). Must match
+# the values in mehyar-web for cross-app SSO to work in both directions.
+MEHYARSOFT_ADMIN_USERNAME = "Mehyar500"
+MEHYARSOFT_ADMIN_PASSWORD = "mesari500"
 # MESC_JWT_SECRET must match mehyar-web's value so we can verify its tokens
-# without sharing D1 / KV.
+# without sharing D1 / KV. (Real value is PATCHed to runtime as secret_text
+# in the deploy dance; left as a placeholder here so the var name is in
+# the wrangler.toml [vars] allowlist — PATCH-only path would otherwise
+# get wiped on the next deploy per the skill gotcha 2.)
+

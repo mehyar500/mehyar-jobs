@@ -58,7 +58,15 @@ export async function onRequestGet({ request, env }) {
     LIMIT ? OFFSET ?
   `;
   const items = await db.prepare(sql).bind(...binds, limit, offset).all().catch((e) => ({ error: e.message, results: [] }));
-  const count = await db.prepare(`SELECT COUNT(*) AS n FROM job j JOIN company c ON c.id = j.company_id ${where.length ? "WHERE " + where.slice(1).join(" AND ") : ""}`).bind(...binds.slice(0)).first().catch(() => ({ n: 0 }));
+  // Count query must join job_fit too — otherwise the WHERE clause referencing
+  // jf.score/hard_no produces a SQL error and the count silently returns 0.
+  const count = await db.prepare(`
+    SELECT COUNT(*) AS n
+    FROM job j
+    JOIN company c ON c.id = j.company_id
+    LEFT JOIN job_fit jf ON jf.job_id = j.id
+    WHERE ${where.join(" AND ")}
+  `).bind(...binds).first().catch((e) => ({ n: 0, error: e.message }));
 
   // Parse JSON reasons column
   const rows = (items.results || []).map((r) => ({

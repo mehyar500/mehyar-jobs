@@ -19,3 +19,12 @@ export const onRequestOptions = async ({ request, env }) => {
   };
   return new Response(null, { status: 204, headers });
 };
+// re-deploy with secret_text vars
+
+// jobs.mehyar.us in env (2026-07-26)
+
+// +1 re-deploy (2026-07-26)
+
+// +1 deploy (full env)
+
+// +1 (count query fix)
