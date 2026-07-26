@@ -40,6 +40,8 @@ export default function Jobs() {
   const [scoring, setScoring] = useState(false);
   const [applyStage, setApplyStage] = useState<Record<number, ApplyStage>>({});
   const [draftResult, setDraftResult] = useState<any | null>(null);
+  const [autoRun, setAutoRun] = useState<any | null>(null);
+  const [autoRunning, setAutoRunning] = useState<number | null>(null);
 
   const params = useMemo(() => {
     const p: any = { sort, fit_min: fitMin };
@@ -172,6 +174,23 @@ export default function Jobs() {
           <Stat label="Total runs" value={(statsQ.data as any)?.scrape_runs ?? "—"} />
         </div>
       </div>
+
+      {/* Auto-submit result viewer */}
+      {autoRun && autoRun.status === "show" && autoRun.screenshot_base64 && (
+        <AutoSubmitViewer run={autoRun} onClose={() => setAutoRun(null)} />
+      )}
+      {autoRun && autoRun.status === "running" && (
+        <div className="card" style={{ borderColor: "var(--accent)" }}>
+          <div className="row" style={{ gap: 10 }}>
+            <span className="spinner" style={{ width: 18, height: 18 }} />
+            <strong>🤖 Auto-applying in headless browser…</strong>
+          </div>
+          <p className="sm muted" style={{ marginTop: 8 }}>
+            Opening {autoRun.applicationId ? "the application form" : "the job page"} in a real Chromium instance, filling the fields, uploading your resume, and clicking submit.
+            This can take 15-45 seconds.
+          </p>
+        </div>
+      )}
 
       {/* Draft preview */}
       {draftResult && (
@@ -319,7 +338,7 @@ function MobileAppliedSummary({ appsQ }: { appsQ: any }) {
   );
 }
 
-function ApplyCell({ job, app, stage, onApply, onSubmit }: { job: any; app: any; stage: ApplyStage; onApply: () => void; onSubmit: () => void }) {
+function ApplyCell({ job, app, stage, onApply, onSubmit, onAutoApply }: { job: any; app: any; stage: ApplyStage; onApply: () => void; onSubmit: () => void; onAutoApply: () => void }) {
   if (stage === "drafting") {
     return <div className="apply-sticky"><div className="progress-bar indeterminate"><div className="fill" /></div><span className="xs dim">Drafting cover letter…</span></div>;
   }
@@ -361,9 +380,14 @@ function ApplyCell({ job, app, stage, onApply, onSubmit }: { job: any; app: any;
   }
   return (
     <div className="apply-sticky">
-      <button className="btn btn-primary" onClick={onApply} data-testid={`apply-${job.id}`}>
-        Apply
-      </button>
+      <div className="row" style={{ gap: 6 }}>
+        <button className="btn btn-primary" onClick={onApply} data-testid={`apply-${job.id}`} style={{ flex: 1 }}>
+          Apply
+        </button>
+        <button className="btn btn-ghost" onClick={() => onAutoApply()} title="Open headless browser, fill form, upload resume, click submit. ⚠️ May violate ATS ToS." data-testid={`auto-apply-${job.id}`}>
+          🤖
+        </button>
+      </div>
     </div>
   );
 }
@@ -417,6 +441,47 @@ function DraftPreview({ draft, onClose, onSubmit }: { draft: any; onClose: () =>
           Edit cover letter →
         </a>
       </div>
+    </div>
+  );
+}
+
+function AutoSubmitViewer({ run, onClose }: { run: any; onClose: () => void }) {
+  return (
+    <div className="card" style={{ borderColor: run.confirmed_by_page ? "var(--good)" : "var(--warn)" }}>
+      <div className="row between">
+        <strong>{run.confirmed_by_page ? "✅ Auto-submit completed" : "⚠️ Auto-submit sent (confirmation page not detected)"}</strong>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}>close</button>
+      </div>
+      <p className="sm muted" style={{ marginTop: 4 }}>
+        Final URL: <a href={run.final_url} target="_blank" rel="noreferrer">{run.final_url}</a>
+      </p>
+      {run.screenshot_base64 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="xs dim" style={{ marginBottom: 4 }}>Post-submit page screenshot:</div>
+          <img src={run.screenshot_base64} alt="post-submit" style={{ maxWidth: "100%", border: "1px solid var(--border)", borderRadius: 8 }} />
+        </div>
+      )}
+      <details style={{ marginTop: 8 }} open>
+        <summary className="sm">Form fields filled ({Object.keys(run.form_filled || {}).length})</summary>
+        <table style={{ marginTop: 8 }}>
+          <thead><tr><th>Field</th><th>Value</th><th>Source</th></tr></thead>
+          <tbody>
+            {Object.entries(run.form_filled || {}).map(([k, v]: any) => (
+              <tr key={k}>
+                <td><code className="mono xs">{k}</code></td>
+                <td className="sm">{String(v.value ?? v.action ?? "—").slice(0, 200)}</td>
+                <td className="sm dim">{v.source ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+      <details style={{ marginTop: 8 }}>
+        <summary className="sm">Log ({run.log?.length || 0} steps)</summary>
+        <pre className="mono xs" style={{ marginTop: 8, padding: 8, background: "var(--bg-elev)", borderRadius: 4, maxHeight: 200, overflow: "auto" }}>
+          {(run.log || []).map((l: any, i: number) => JSON.stringify(l)).join("\n")}
+        </pre>
+      </details>
     </div>
   );
 }
