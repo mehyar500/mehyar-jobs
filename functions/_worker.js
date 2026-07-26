@@ -28,3 +28,7 @@ export const onRequestOptions = async ({ request, env }) => {
 // +1 deploy (full env)
 
 // +1 (count query fix)
+
+// +1 deploy (digest + NOTIFY_EMAIL)
+
+// +1 deploy (NOTIFY_EMAIL in wrangler.toml [vars])

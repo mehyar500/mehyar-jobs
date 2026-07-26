@@ -102,4 +102,6 @@ export const api = {
     return fetch("/api/admin/applications/export.csv", { headers: token ? { authorization: `Bearer ${token}` } : {}, credentials: "include" })
       .then((r) => { if (!r.ok) throw new Error("export failed: " + r.status); return r.blob(); });
   },
+  getDigest:           (days = 1) => apiFetch(`/api/admin/digest?days=${days}`),
+  sendDigest:          () => apiFetch(`/api/admin/digest`, { method: "POST" }),
 };

@@ -16,6 +16,12 @@ APP_HOST = "jobs.mehyar.us"
 # the values in mehyar-web for cross-app SSO to work in both directions.
 MEHYARSOFT_ADMIN_USERNAME = "Mehyar500"
 MEHYARSOFT_ADMIN_PASSWORD = "mesari500"
+# Where the daily digest + apply notifications go. The real value is
+# PATCHed to runtime as plain_text in the deploy dance; the name is
+# declared here so the wrangler.toml [vars] allowlist persists it
+# across deploys.
+NOTIFY_EMAIL = "mrswelim@gmail.com"
+FROM_EMAIL   = "mehyar.jobs <noreply@mehyar.us>"
 # MESC_JWT_SECRET must match mehyar-web's value so we can verify its tokens
 # without sharing D1 / KV. (Real value is PATCHed to runtime as secret_text
 # in the deploy dance; left as a placeholder here so the var name is in

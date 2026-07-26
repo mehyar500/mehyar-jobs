@@ -49,6 +49,23 @@ export function ApplicationsList() {
   };
 
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [digestSending, setDigestSending] = useState(false);
+
+  const onSendDigest = async () => {
+    setDigestSending(true);
+    try {
+      const r: any = await api.sendDigest();
+      if (r.sent) {
+        toast.push({ kind: "success", title: "📊 Digest sent", message: `Check your inbox — ${r.digest_preview?.counts?.submitted || 0} submitted, ${r.digest_preview?.counts?.confirmed || 0} confirmed.` });
+      } else {
+        toast.push({ kind: "info", title: "Digest generated", message: r.error ? `Email failed: ${r.error}. Click on an application to see the data.` : "Saved to DB." });
+      }
+    } catch (e: any) {
+      toast.push({ kind: "error", title: "Failed to send digest", message: e?.body?.error || e?.message });
+    } finally {
+      setDigestSending(false);
+    }
+  };
 
   const onExport = async () => {
     try {
@@ -109,6 +126,14 @@ export function ApplicationsList() {
             </button>
           ))}
           <span className="grow" />
+          <button
+            className="btn btn-sm"
+            onClick={onSendDigest}
+            disabled={digestSending}
+            title="Email me a summary of today's applications"
+          >
+            {digestSending ? <><span className="spinner" /> sending…</> : "📊 Email me today's digest"}
+          </button>
           <button
             className="btn btn-sm btn-primary"
             onClick={onBulkAutoApply}
