@@ -148,6 +148,25 @@ export default function Jobs() {
     }
   };
 
+  const autoApply = async (jobId: number) => {
+    setAutoRunning(jobId);
+    setAutoRun({ status: "running", applicationId: appsByJob[jobId]?.id || null });
+    try {
+      const app = appsByJob[jobId] || await api.draftApplication(jobId);
+      setAutoRun({ status: "running", applicationId: app.id });
+      const r = await api.autoSubmit(app.id);
+      setAutoRun({ status: "show", ...r });
+      qc.invalidateQueries({ queryKey: ["applications"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      toast.push({ kind: "success", title: "Auto-apply run finished", message: "Review the captured result before relying on the submission." });
+    } catch (e: any) {
+      setAutoRun(null);
+      toast.push({ kind: "error", title: "Auto-apply failed", message: e?.body?.error || e?.message });
+    } finally {
+      setAutoRunning(null);
+    }
+  };
+
   return (
     <div className="col" style={{ gap: 16 }}>
       {/* Banner */}
@@ -304,6 +323,8 @@ export default function Jobs() {
                         stage={applyStage[j.id] || "idle"}
                         onApply={() => startApply(j.id)}
                         onSubmit={() => app && submitApply(app.id, j.id)}
+                        onAutoApply={() => autoApply(j.id)}
+                        autoRunning={autoRunning === j.id}
                       />
                     </td>
                   </tr>
@@ -338,7 +359,7 @@ function MobileAppliedSummary({ appsQ }: { appsQ: any }) {
   );
 }
 
-function ApplyCell({ job, app, stage, onApply, onSubmit, onAutoApply }: { job: any; app: any; stage: ApplyStage; onApply: () => void; onSubmit: () => void; onAutoApply: () => void }) {
+function ApplyCell({ job, app, stage, onApply, onSubmit, onAutoApply, autoRunning }: { job: any; app: any; stage: ApplyStage; onApply: () => void; onSubmit: () => void; onAutoApply: () => void; autoRunning: boolean }) {
   if (stage === "drafting") {
     return <div className="apply-sticky"><div className="progress-bar indeterminate"><div className="fill" /></div><span className="xs dim">Drafting cover letter…</span></div>;
   }
@@ -384,8 +405,8 @@ function ApplyCell({ job, app, stage, onApply, onSubmit, onAutoApply }: { job: a
         <button className="btn btn-primary" onClick={onApply} data-testid={`apply-${job.id}`} style={{ flex: 1 }}>
           Apply
         </button>
-        <button className="btn btn-ghost" onClick={() => onAutoApply()} title="Open headless browser, fill form, upload resume, click submit. ⚠️ May violate ATS ToS." data-testid={`auto-apply-${job.id}`}>
-          🤖
+        <button className="btn btn-ghost" onClick={() => onAutoApply()} disabled={autoRunning} title="Open headless browser, fill form, upload resume, click submit. ⚠️ May violate ATS ToS." data-testid={`auto-apply-${job.id}`}>
+          {autoRunning ? <span className="spinner" /> : "🤖"}
         </button>
       </div>
     </div>

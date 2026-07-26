@@ -18,6 +18,7 @@ import { ensureSchema } from "../../_shared/db.js";
 import { loadProfile } from "../../_shared/fit.js";
 import { generateCoverLetter, generateCustomAnswers, matchCustomQuestions, extractQuestions } from "../../_shared/coverLetter.js";
 import { sendEmail, renderApplicationEmail } from "../../_shared/email.js";
+import { extractSalary } from "../../_shared/salary.js";
 
 export { onRequestOptions as onRequest };
 
@@ -53,6 +54,9 @@ export async function onRequestGet({ request, env }) {
       a.email_sent_at, a.email_id,
       a.company_confirmed_at, a.company_confirmed_source, a.company_email_subject,
       a.tracking_email, a.next_action_at, a.follow_up_count,
+      a.salary_min_job, a.salary_max_job, a.salary_currency_job,
+      a.cover_letter_sent, a.custom_answers_sent, a.fields_filled_json,
+      a.application_method, a.external_url,
       jf.score AS job_score,
       j.title AS job_title, j.url AS job_url, j.location AS job_location,
       j.remote_policy AS job_remote_policy,
@@ -97,25 +101,47 @@ export async function onRequestPost({ request, env }) {
   const matchedAnswers = matchCustomQuestions(questions, canonicalAnswers);
   // Include all canonical answers in the map for completeness; user can override per-question
   const customAnswers = body.custom_answers || { ...Object.fromEntries(matchedAnswers.map((m) => [m.q, m.a])), ...canonicalAnswers };
+  // The tracking email is the address the company will use to reply
+  // (which is then auto-detected by /api/email/inbound). The user
+  // can override it per-application if they want a real personal
+  // email there instead.
+  const trackingEmail = body.tracking_email || generateTrackingEmail();
+  // Salary extracted from the job description (if present).
+  const salary = extractSalary(job.description_text || "");
 
   // Upsert: one application per job
-  const existing = await env.JOBS_DB.prepare("SELECT id FROM application WHERE job_id = ?").bind(jobId).first().catch(() => null);
   let id;
-  if (existing) {
-    await env.JOBS_DB.prepare(`
-      UPDATE application SET cover_letter = ?, custom_answers = ?, updated_at = datetime('now'), status = CASE WHEN status = 'submitted' OR status = 'submitting' THEN status ELSE 'draft' END
-      WHERE id = ?
-    `).bind(coverLetter, JSON.stringify(customAnswers), existing.id).run().catch(() => null);
-    id = existing.id;
-  } else {
-    const r = await env.JOBS_DB.prepare(`
-      INSERT INTO application (job_id, status, cover_letter, custom_answers, tracking_email)
-      VALUES (?, 'draft', ?, ?)
-    `).bind(jobId, coverLetter, JSON.stringify(customAnswers)).run();
-    id = r?.meta?.last_row_id;
+  try {
+    const existing = await env.JOBS_DB.prepare("SELECT id FROM application WHERE job_id = ?").bind(jobId).first();
+    if (existing) {
+      const upd = await env.JOBS_DB.prepare(`
+        UPDATE application
+        SET cover_letter = ?,
+            custom_answers = ?,
+            tracking_email = COALESCE(?, tracking_email),
+            salary_min_job = COALESCE(?, salary_min_job),
+            salary_max_job = COALESCE(?, salary_max_job),
+            salary_currency_job = COALESCE(?, salary_currency_job),
+            updated_at = datetime('now'),
+            status = CASE WHEN status = 'submitted' OR status = 'submitting' THEN status ELSE 'draft' END
+        WHERE id = ?
+      `).bind(coverLetter, JSON.stringify(customAnswers), trackingEmail, salary?.min ?? null, salary?.max ?? null, salary?.currency ?? null, existing.id).run();
+      id = existing.id;
+    } else {
+      const ins = await env.JOBS_DB.prepare(`
+        INSERT INTO application (job_id, status, cover_letter, custom_answers, tracking_email, salary_min_job, salary_max_job, salary_currency_job)
+        VALUES (?, 'draft', ?, ?, ?, ?, ?, ?)
+      `).bind(jobId, coverLetter, JSON.stringify(customAnswers), trackingEmail, salary?.min ?? null, salary?.max ?? null, salary?.currency ?? null).run();
+      id = ins?.meta?.last_row_id;
+    }
+  } catch (e) {
+    console.log("applications.js POST upsert error:", String(e?.message || e));
+    return json({ ok: false, error: "upsert_failed", detail: String(e?.message || e) }, 500, request, env);
   }
-  await env.JOBS_DB.prepare("INSERT INTO application_event (application_id, kind, detail) VALUES (?, ?, ?)")
-    .bind(id, existing ? "updated" : "created", `draft for job ${jobId}`).run().catch(() => null);
+  try {
+    await env.JOBS_DB.prepare("INSERT INTO application_event (application_id, kind, detail) VALUES (?, ?, ?)")
+      .bind(id, "created", `draft for job ${jobId}`).run();
+  } catch {}
 
   return json({
     ok: true,

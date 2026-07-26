@@ -8,3 +8,4 @@ dist
 *.log
 .cache
 functions/_shared/migrations.js
+test-resume.pdf

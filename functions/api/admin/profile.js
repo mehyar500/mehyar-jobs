@@ -48,6 +48,7 @@ export async function onRequestPost({ request, env }) {
     return json({ ok: false, error: "resume_too_large", max_bytes: 3_000_000 }, 400, request, env);
   }
 
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const next = {
     target_titles_json:        JSON.stringify(safeArr(body.target_titles)),
     keywords_json:             JSON.stringify(safeArr(body.keywords)),
@@ -83,7 +84,7 @@ export async function onRequestPost({ request, env }) {
     hispanic_latino:            strOrNull(body.hispanic_latino, 200),
     cleartext_address:          strOrNull(body.cleartext_address, 500),
     default_answers_json:       JSON.stringify(safeObj(body.default_answers)),
-    updated_at:                 "datetime('now')",
+    updated_at:                 now,
   };
 
   const setSql = Object.keys(next).map((k) => k + " = ?").join(", ");
@@ -95,8 +96,7 @@ export async function onRequestPost({ request, env }) {
     // Row missing — fall back to insert
     const cols = Object.keys(next).join(", ");
     const qs   = Object.keys(next).map(() => "?").join(", ");
-    const insertVals = Object.entries(next).map(([k, v]) => k === "updated_at" ? null : v);
-    await env.JOBS_DB.prepare(`INSERT INTO profile (id, ${cols}) VALUES (1, ${qs})`).bind(...insertVals).run();
+    await env.JOBS_DB.prepare(`INSERT INTO profile (id, ${cols}) VALUES (1, ${qs})`).bind(...vals).run();
   }
 
   const row = await env.JOBS_DB.prepare("SELECT * FROM profile WHERE id = 1").first();

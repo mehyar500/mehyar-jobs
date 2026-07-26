@@ -44,11 +44,26 @@ export async function onRequestPost({ request, env, params }) {
 
   await env.JOBS_DB.prepare(`
     UPDATE application
-    SET status = 'submitted', submission_method = 'external_link', submission_url = ?, submitted_at = ?, updated_at = ?
+    SET status = 'submitted',
+        submission_method = 'external_link',
+        submission_url = ?,
+        submitted_at = ?,
+        updated_at = ?,
+        cover_letter_sent = ?,
+        custom_answers_sent = ?,
+        application_method = 'manual',
+        external_url = ?
     WHERE id = ?
-  `).bind(submissionUrl, now, now, id).run();
+  `).bind(submissionUrl, now, now, app.cover_letter || "", JSON.stringify(app.custom_answers || {}), submissionUrl, id).run();
   await env.JOBS_DB.prepare("INSERT INTO application_event (application_id, kind, detail) VALUES (?, 'submitted', ?)")
     .bind(id, JSON.stringify({ method: "external_link", url: submissionUrl, at: now })).run().catch(() => null);
+
+  // Bump daily counter
+  const today = new Date().toISOString().slice(0, 10);
+  await env.JOBS_DB.prepare(`
+    INSERT INTO daily_counter (day, submitted, succeeded) VALUES (?, 1, 1)
+    ON CONFLICT(day) DO UPDATE SET submitted = submitted + 1, succeeded = succeeded + 1
+  `).bind(today).run().catch(() => null);
 
   const profile = await loadProfile(env);
   const { subject, text, html } = renderApplicationEmail({

@@ -97,6 +97,10 @@ export const api = {
   bulkAutoApply:       (body: any) => apiFetch(`/api/admin/applications/bulk-auto-submit`, { method: "POST", body: JSON.stringify(body) }),
   getAutoSubmitRun:    (id: number) => apiFetch(`/api/admin/applications/${id}/auto-submit`),
   formFill:            (id: number, fields: any[], screenshot?: string) => apiFetch(`/api/admin/applications/${id}/form-fill`, { method: "POST", body: JSON.stringify({ fields, screenshot }) }),
+  // Queue (max 50/day, dedup)
+  getQueue:            (status?: string) => apiFetch("/api/admin/applications/queue" + (status ? "?status=" + encodeURIComponent(status) : "")),
+  enqueue:             (body: { job_ids?: number[]; fit_min?: number; max?: number; run_now?: boolean }) =>
+                         apiFetch("/api/admin/applications/queue", { method: "POST", body: JSON.stringify(body) }),
   exportApplicationsCSV: () => {
     const token = getToken();
     return fetch("/api/admin/applications/export.csv", { headers: token ? { authorization: `Bearer ${token}` } : {}, credentials: "include" })

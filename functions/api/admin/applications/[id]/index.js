@@ -17,11 +17,13 @@ export async function onRequestGet({ request, env, params }) {
   await ensureSchema(env);
   const id = parseInt(params?.id, 10);
   if (!id) return json({ ok: false, error: "id_required" }, 400, request, env);
-
   const app = await env.JOBS_DB.prepare(`
-    SELECT a.*, j.title AS job_title, j.url AS job_url, j.location AS job_location, j.remote_policy AS job_remote_policy,
+    SELECT a.tracking_email, a.cover_letter_sent, a.custom_answers_sent, a.fields_filled_json,
+           a.application_method, a.external_url, a.salary_min_job, a.salary_max_job, a.salary_currency_job,
+           a.*, jf.score AS job_score,
+           j.title AS job_title, j.url AS job_url, j.location AS job_location, j.remote_policy AS job_remote_policy,
            j.department AS job_department, j.description_text AS job_description, j.salary_min, j.salary_max, j.salary_currency,
-           j.posted_at AS job_posted_at, jf.score AS job_score,
+           j.posted_at AS job_posted_at,
            c.id AS company_id, c.name AS company_name, c.slug AS company_slug, c.industry AS company_industry,
            c.careers_url AS company_careers_url, c.hq_country, c.hq_state
     FROM application a

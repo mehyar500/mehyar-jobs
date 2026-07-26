@@ -14,7 +14,7 @@ const DEFAULTS = {
   excluded_industries: ["tobacco", "weapons"],
   notes: "",
   // extended
-  full_name: "",
+  full_name: "Mehyar Swelim ", 
   email: "",
   phone: "",
   city: "",
@@ -289,7 +289,7 @@ export default function Profile() {
   );
 }
 
-function Section({ title, sub, children }: any) {
+function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
     <div className="card">
       <h2 className="h2">{title}</h2>
@@ -299,7 +299,7 @@ function Section({ title, sub, children }: any) {
   );
 }
 
-function Field({ title, sub, value, onChange, placeholder }: any) {
+function Field({ title, sub, value, onChange, placeholder }: { title: string; sub?: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <div>
       <div className="h3">{title}</div>
@@ -309,7 +309,7 @@ function Field({ title, sub, value, onChange, placeholder }: any) {
   );
 }
 
-function SimpleField({ label, value, onChange, placeholder, type }: any) {
+function SimpleField({ label, value, onChange, placeholder, type }: { label: string; value: string | number | null | undefined; onChange: (value: string) => void; placeholder?: string; type?: string }) {
   return (
     <div>
       <div className="xs dim" style={{ marginBottom: 4 }}>{label}</div>

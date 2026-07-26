@@ -1,0 +1,16 @@
+name = "mehyar-jobs-email-sender"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# Outbound email — Workers supports [[send_email]] bindings directly
+# (Pages projects do not). Used for the daily digest + per-apply
+# notifications.
+[[send_email]]
+name = "SEND_EMAIL"
+allowed_destination_addresses = ["mrswelim@gmail.com", "mehyar500@gmail.com"]
+
+# Default from address (overridable per-send)
+[vars]
+FROM_EMAIL = "mehyar.jobs <noreply@mehyar.us>"
+APP_NAME = "mehyar-jobs"
+APP_HOST = "jobs.mehyar.us"

@@ -6,6 +6,7 @@
 
 import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../_shared/adminAuth.js";
 import { ensureSchema, recordScrapeRun } from "../../../_shared/db.js";
+import { persistSalary } from "../../../_shared/salary.js";
 import { scrapeCompany } from "../../../_lib/scrapers/index.js";
 import { SEED_COMPANIES } from "../../../_lib/data/seed_companies.js";
 
@@ -87,6 +88,10 @@ export async function onRequestPost({ request, env }) {
           item.department, item.team, item.location, item.remote_policy, item.employment_type,
           item.posted_at, item.description, item.description_text, JSON.stringify(item.raw || {})
         ).run().catch(() => {});
+        // Persist salary if the description has it
+        if (item.description_text || item.description) {
+          try { await persistSalary(env, c.id, item.description_text || item.description); } catch {}
+        }
         seenExtIds.add(item.external_id);
         jobsFound += 1;
         if (!before) newJobs += 1;

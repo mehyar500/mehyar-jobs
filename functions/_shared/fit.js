@@ -165,7 +165,14 @@ export function scoreJob(job, profile, industry) {
   return { score, reasons, hard_no: hard.hard_no, hard_no_reason: hard.reason };
 }
 
-export function loadProfile(row) {
+export async function loadProfile(arg) {
+  // Accept either an env (with JOBS_DB) or a pre-fetched row.
+  let row = null;
+  if (arg && arg.JOBS_DB) {
+    row = await arg.JOBS_DB.prepare("SELECT * FROM profile WHERE id = 1").first();
+  } else {
+    row = arg;
+  }
   if (!row) return null;
   return {
     target_titles: safeJson(row.target_titles_json, []),
@@ -177,10 +184,54 @@ export function loadProfile(row) {
     preferred_industries: safeJson(row.preferred_industries_json, []),
     excluded_industries: safeJson(row.excluded_industries_json, []),
     notes: row.notes || "",
+    // New fields for the headless auto-submit + cover-letter generator
+    resume_base64:    row.resume_base64 || "",
+    resume_filename:  row.resume_filename || "",
+    resume_mime:      row.resume_mime || "",
+    resume_text:      row.resume_text || "",
+    linkedin_url:     row.linkedin_url || "",
+    github_url:       row.github_url || "",
+    portfolio_url:    row.portfolio_url || "",
+    personal_website: row.personal_website || "",
+    phone:            row.phone || "",
+    city:             row.city || "",
+    country:          row.country || "",
+    work_auth:        row.work_auth || "",
+    years_experience: row.years_experience || null,
+    current_title:    row.current_title || "",
+    current_company:  row.current_company || "",
+    current_salary:   row.current_salary || null,
+    notice_period:    row.notice_period || "",
+    gender:           row.gender || "",
+    ethnicity:        row.ethnicity || "",
+    veteran_status:   row.veteran_status || "",
+    disability:       row.disability || "",
+    hispanic_latino:  row.hispanic_latino || "",
+    cleartext_address: row.cleartext_address || "",
+    default_answers:  safeJson(row.default_answers_json, {}),
   };
 }
 
 function safeJson(s, fb) {
   if (!s) return fb;
   try { return JSON.parse(s); } catch { return fb; }
+}
+
+// ── Name split helper ──
+// Splits a full name into first + last. Works for "Mehyar Swelim",
+// "Mehyar A. Swelim", "Mehyar bin Swelim" (treats first token as first name).
+export function splitName(full) {
+  const f = String(full || "").trim().split(/\s+/).filter(Boolean);
+  if (f.length === 0) return { first: "", last: "" };
+  if (f.length === 1) return { first: f[0], last: "" };
+  return { first: f[0], last: f.slice(1).join(" ") };
+}
+
+// ── Look up first/last from profile.full_name (or first_name/last_name) ──
+export function getProfileNames(profile) {
+  if (!profile) return { first: "", last: "" };
+  if (profile.first_name || profile.last_name) {
+    return { first: profile.first_name || "", last: profile.last_name || "" };
+  }
+  return splitName(profile.full_name);
 }

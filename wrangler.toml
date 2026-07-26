@@ -15,7 +15,6 @@ APP_HOST = "jobs.mehyar.us"
 # Username + password used by /api/auth/login (login.js). Must match
 # the values in mehyar-web for cross-app SSO to work in both directions.
 MEHYARSOFT_ADMIN_USERNAME = "Mehyar500"
-MEHYARSOFT_ADMIN_PASSWORD = "mesari500"
 # Where the daily digest + apply notifications go. The real value is
 # PATCHed to runtime as plain_text in the deploy dance; the name is
 # declared here so the wrangler.toml [vars] allowlist persists it

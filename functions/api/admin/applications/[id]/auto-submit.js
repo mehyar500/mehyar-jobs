@@ -321,6 +321,27 @@ async function runAutomation(env, app, profile, runId) {
       `).bind(id).run();
     }
 
+    // Persist what was sent + the salary info + the external URL
+    try {
+      await env.JOBS_DB.prepare(`
+        UPDATE application
+        SET cover_letter_sent = ?,
+            custom_answers_sent = ?,
+            fields_filled_json = ?,
+            application_method = 'browser_automation',
+            external_url = ?
+        WHERE id = ?
+      `).bind(
+        app.cover_letter || "",
+        JSON.stringify(app.custom_answers || {}),
+        JSON.stringify(formFilled || {}),
+        finalUrl || app.job_url || "",
+        id
+      ).run();
+    } catch (e) {
+      log.push({ step: "persist_capture_error", error: String(e?.message || e) });
+    }
+
     return {
       ok: true,
       run_id: runId,
