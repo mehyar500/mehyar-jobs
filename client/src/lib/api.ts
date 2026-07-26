@@ -94,6 +94,7 @@ export const api = {
   unconfirmApplication:(id: number) => apiFetch(`/api/admin/applications/${id}/confirm`, { method: "DELETE" }),
   withdrawApplication: (id: number) => apiFetch(`/api/admin/applications/${id}`, { method: "DELETE" }),
   autoSubmit:          (id: number) => apiFetch(`/api/admin/applications/${id}/auto-submit`, { method: "POST", body: JSON.stringify({ confirm: true }) }),
+  bulkAutoApply:       (body: any) => apiFetch(`/api/admin/applications/bulk-auto-submit`, { method: "POST", body: JSON.stringify(body) }),
   getAutoSubmitRun:    (id: number) => apiFetch(`/api/admin/applications/${id}/auto-submit`),
   formFill:            (id: number, fields: any[], screenshot?: string) => apiFetch(`/api/admin/applications/${id}/form-fill`, { method: "POST", body: JSON.stringify({ fields, screenshot }) }),
   exportApplicationsCSV: () => {

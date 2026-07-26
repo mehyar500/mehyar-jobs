@@ -433,7 +433,12 @@ function decideValue(f, profile, app, log, env) {
   if (/^full.?name$|^name$/.test(hay) && !/company/.test(hay)) {
     return { value: profile.full_name || `${splitName(profile).first} ${splitName(profile).last}`, source: "profile.full_name" };
   }
-  if (/^email$|e-?mail/.test(hay)) return { value: profile.email || "", source: "profile.email" };
+  if (/^email$|e-?mail/.test(hay)) {
+    // Prefer the per-application tracking email so we get perfect
+    // auto-confirm when the company replies. Fall back to the
+    // profile's real email if no tracking email is set.
+    return { value: app.tracking_email || profile.email || "", source: app.tracking_email ? "app.tracking_email" : "profile.email" };
+  }
   if (/^phone$|^mobile$|^tel$/.test(hay)) return { value: profile.phone || "", source: "profile.phone" };
   if (/^location$|^city$/.test(hay))    return { value: profile.city || "", source: "profile.city" };
   if (/^country$/.test(hay))            return { value: profile.country || "", source: "profile.country" };

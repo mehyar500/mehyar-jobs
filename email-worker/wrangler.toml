@@ -1,0 +1,11 @@
+name = "mehyar-jobs-email-worker"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# This worker is triggered by incoming email (CF Email Routing).
+# No HTTP route — only the email() handler.
+
+# Bindings
+[vars]
+# Override these in the CF dashboard or via `wrangler secret put`
+MEHYAR_JOBS_WEBHOOK = "https://jobs.mehyar.us/api/email/inbound"

@@ -27,6 +27,29 @@ export function ApplicationsList() {
     refetchInterval: 30_000,
   });
 
+  const onBulkAutoApply = async () => {
+    if (!confirm("🤖 BULK AUTO-APPLY (headless browser):\n\nThis will run the headless browser against all your draft applications with fit score ≥ 70 in parallel (max 25 at a time).\n\n⚠️  Most ATS systems (Greenhouse, Lever, Ashby, Workday) prohibit this in their ToS — your account can be banned.\n\nContinue?")) return;
+    setBulkRunning(true);
+    try {
+      const r: any = await api.bulkAutoApply({ confirm: true });
+      const succeeded = r.succeeded || 0, failed = r.failed || 0;
+      toast.push({
+        kind: r.failed === 0 ? "success" : "info",
+        title: `🤖 Bulk complete: ${succeeded}/${r.ran} succeeded`,
+        message: failed > 0 ? `${failed} failed. Check the Applications tab for details.` : "All draft applications auto-submitted.",
+        duration: 8000,
+      });
+      qc.invalidateQueries({ queryKey: ["applications"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+    } catch (e: any) {
+      toast.push({ kind: "error", title: "Bulk auto-apply failed", message: e?.body?.error || e?.message });
+    } finally {
+      setBulkRunning(false);
+    }
+  };
+
+  const [bulkRunning, setBulkRunning] = useState(false);
+
   const onExport = async () => {
     try {
       const blob = await api.exportApplicationsCSV();
@@ -86,6 +109,14 @@ export function ApplicationsList() {
             </button>
           ))}
           <span className="grow" />
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={onBulkAutoApply}
+            disabled={bulkRunning}
+            title="Run the headless browser against all draft applications with fit score above 70 in parallel. ⚠️ May violate ATS ToS."
+          >
+            {bulkRunning ? <><span className="spinner" /> bulk running…</> : "🤖 Bulk auto-apply drafts"}
+          </button>
           <button className="btn btn-sm" onClick={onExport} title="Download a CSV of every application">
             ⬇️ Export CSV
           </button>
@@ -256,7 +287,7 @@ export function ApplicationDetail() {
     <div className="col" style={{ gap: 16 }}>
       <div className="card">
         <div className="between wrap" style={{ gap: 12 }}>
-          <div>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <a href={`${app.job_url}`} target="_blank" rel="noreferrer" className="h1" style={{ color: "inherit", textDecoration: "none" }}>
               {app.job_title}
             </a>
@@ -268,6 +299,14 @@ export function ApplicationDetail() {
               {app.submitted_at ? <> · submitted {relativeTime(app.submitted_at)}</> : null}
               {app.company_confirmed_at ? <> · ✅ company confirmed {relativeTime(app.company_confirmed_at)}</> : null}
             </div>
+            {app.tracking_email && (
+              <div className="row" style={{ gap: 6, marginTop: 6, alignItems: "center" }}>
+                <span className="xs dim">tracking email:</span>
+                <code className="mono xs" style={{ padding: "2px 6px", background: "var(--bg-elev)", borderRadius: 4, border: "1px solid var(--border)" }}>{app.tracking_email}</code>
+                <button className="btn btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(app.tracking_email)}>Copy</button>
+                <span className="xs dim">— use this as the contact email on the company form for auto-confirm</span>
+              </div>
+            )}
           </div>
           <div className="row wrap" style={{ gap: 6 }}>
             {app.status === "draft" && (

@@ -35,11 +35,15 @@ export async function onRequestPost({ request, env }) {
   const subject = String(body.subject || "").slice(0, 300);
   const text = String(body.text || body.html || "").slice(0, 20000);
 
-  // 1. Match by tracking_email = to-address (e.g. app-42@jobs.mehyar.us)
+  // 1. Match by tracking_email = to-address (e.g. app-675dc9@jobs.mehyar.us)
   let app = null;
-  const toMatch = to.match(/app-(\d+)@/i);
+  const toMatch = to.match(/app-([a-z0-9]+)@/i);
   if (toMatch) {
-    app = await env.JOBS_DB.prepare("SELECT * FROM application WHERE id = ?").bind(parseInt(toMatch[1], 10)).first();
+    // We need to find the application whose tracking_email ends with the
+    // captured local-part. Since the address is app-{shortId}@..., we
+    // look it up by tracking_email like 'app-XXXX@jobs.mehyar.us'.
+    app = await env.JOBS_DB.prepare("SELECT * FROM application WHERE tracking_email = ? LIMIT 1")
+      .bind(`app-${toMatch[1]}@jobs.mehyar.us`).first();
   }
 
   // 2. Fallback: match by from-address against company careers URL

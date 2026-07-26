@@ -109,7 +109,7 @@ export async function onRequestPost({ request, env }) {
     id = existing.id;
   } else {
     const r = await env.JOBS_DB.prepare(`
-      INSERT INTO application (job_id, status, cover_letter, custom_answers)
+      INSERT INTO application (job_id, status, cover_letter, custom_answers, tracking_email)
       VALUES (?, 'draft', ?, ?)
     `).bind(jobId, coverLetter, JSON.stringify(customAnswers)).run();
     id = r?.meta?.last_row_id;
@@ -129,3 +129,16 @@ export async function onRequestPost({ request, env }) {
 }
 
 function safeJson(s, fb) { try { return JSON.parse(s); } catch { return fb; } }
+
+function generateTrackingEmail() {
+  // Generate a per-draft tracking address: app-{shortId}@jobs.mehyar.us.
+  // shortId is a 6-char base36 random. The user can override per app.
+  // The email worker /api/email/inbound matches on the local-part to
+  // route the company's reply back to the right application.
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let id = "";
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  for (let i = 0; i < 6; i++) id += chars[bytes[i] % chars.length];
+  return `app-${id}@jobs.mehyar.us`;
+}
