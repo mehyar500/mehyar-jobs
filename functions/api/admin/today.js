@@ -81,21 +81,29 @@ export async function onRequestGet({ request, env }) {
   //    The "aggregate" view: every active job, posted_at-first. This is what
   //    the user asks for when they say "show the most recent posts" — not
   //    gated by when we discovered the job, just sorted by posting date.
-  const recentAll = await db.prepare(`
-    SELECT
-      j.id, j.title, j.url, j.location, j.remote_policy, j.department,
-      j.first_seen_at, j.posted_at,
-      c.id AS company_id, c.name AS company_name, c.slug AS company_slug, c.industry,
-      jf.score, jf.hard_no,
-      a.id AS application_id, a.status AS application_status
-    FROM job j
-    JOIN company c ON c.id = j.company_id
-    LEFT JOIN job_fit jf ON jf.job_id = j.id
-    LEFT JOIN application a ON a.job_id = j.id
-    WHERE j.is_active = 1
-    ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
-    LIMIT ?
-  `).bind(limit).all().catch((e) => ({ results: [], error: e.message }));
+  let recentAll;
+  try {
+    recentAll = await db.prepare(`
+      SELECT
+        j.id, j.title, j.url, j.location, j.remote_policy, j.department,
+        j.first_seen_at, j.posted_at,
+        c.id AS company_id, c.name AS company_name, c.slug AS company_slug, c.industry,
+        jf.score, jf.hard_no,
+        a.id AS application_id, a.status AS application_status
+      FROM job j
+      JOIN company c ON c.id = j.company_id
+      LEFT JOIN job_fit jf ON jf.job_id = j.id
+      LEFT JOIN application a ON a.job_id = j.id
+      WHERE j.is_active = 1
+      ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
+      LIMIT ?
+    `).bind(limit).all();
+    if (!recentAll) recentAll = { results: [] };
+    if (!Array.isArray(recentAll.results)) recentAll.results = [];
+  } catch (e) {
+    console.error("today.recentAll error:", e?.message);
+    recentAll = { results: [], error: e?.message || String(e) };
+  }
 
   // ---- 4. submitted: any application with status='submitted', recent first ----
   const submitted = await db.prepare(`
@@ -136,10 +144,17 @@ export async function onRequestGet({ request, env }) {
     last_run: lastRun || null,
     counters: {
       total_active: totalActive?.n || 0,
-      new_in_window: (newToday.results || []).length,
-      not_submitted: (notSubmitted.results || []).length,
+      new_in_window: Array.isArray(newToday?.results) ? newToday.results.length : 0,
+      not_submitted: Array.isArray(notSubmitted?.results) ? notSubmitted.results.length : 0,
+      recent_all: Array.isArray(recentAll?.results) ? recentAll.results.length : 0,
       submitted_today: submittedToday?.n || 0,
       submitted_this_window: submittedWeek?.n || 0,
+    },
+    query_errors: {
+      new_today: newToday?.error || null,
+      not_submitted: notSubmitted?.error || null,
+      recent_all: recentAll?.error || null,
+      submitted: submitted?.error || null,
     },
     new_today:      newToday.results    || [],
     not_submitted:  notSubmitted.results || [],
