@@ -175,6 +175,8 @@ export async function loadProfile(arg) {
   }
   if (!row) return null;
   return {
+    full_name:        row.full_name || "",
+    email:            row.email || "",
     target_titles: safeJson(row.target_titles_json, []),
     keywords: safeJson(row.keywords_json, []),
     exclude_keywords: safeJson(row.exclude_keywords_json, []),

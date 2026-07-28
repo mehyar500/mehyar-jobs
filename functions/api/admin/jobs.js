@@ -25,7 +25,7 @@ export async function onRequestGet({ request, env }) {
   const companyId = url.searchParams.get("company_id") || "";
   const postedWithin = parseInt(url.searchParams.get("posted_within") || "0", 10); // days
   const includeHardNo = url.searchParams.get("include_hard_no") === "1";
-  const sort = url.searchParams.get("sort") || "fit"; // fit | recent | company
+  const sort = url.searchParams.get("sort") || "fit"; // fit | recent | company | posted | salary
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
   const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
 
@@ -40,7 +40,12 @@ export async function onRequestGet({ request, env }) {
   if (!includeHardNo) { where.push("(jf.hard_no IS NULL OR jf.hard_no = 0)"); }
   if (fitMin > 0) { where.push("(jf.score IS NULL OR jf.score >= ?)"); binds.push(fitMin); }
 
-  const orderBy = sort === "recent" ? "j.first_seen_at DESC" : sort === "company" ? "c.name ASC, jf.score DESC" : "COALESCE(jf.score, 0) DESC, j.first_seen_at DESC";
+  const orderBy =
+    sort === "recent"    ? "j.first_seen_at DESC" :
+    sort === "company"   ? "c.name ASC, jf.score DESC" :
+    sort === "posted"    ? "COALESCE(j.posted_at, j.first_seen_at) DESC, COALESCE(jf.score, 0) DESC" :
+    sort === "salary"    ? "COALESCE(j.salary_max, j.salary_min, 0) DESC, COALESCE(jf.score, 0) DESC, j.first_seen_at DESC" :
+                           "COALESCE(jf.score, 0) DESC, j.first_seen_at DESC";
 
   const sql = `
     SELECT

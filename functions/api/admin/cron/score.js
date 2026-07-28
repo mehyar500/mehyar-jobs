@@ -19,7 +19,7 @@ export async function onRequestPost({ request, env }) {
   const db = env.JOBS_DB;
 
   const profileRow = await db.prepare("SELECT * FROM profile WHERE id = 1").first();
-  const profile = loadProfile(profileRow);
+  const profile = await loadProfile(profileRow);
 
   // Pull every active job joined with its company industry in chunks.
   const rows = await db.prepare(`

@@ -12,6 +12,7 @@ import { ensureSchema } from "../../_shared/db.js";
 export { onRequestOptions as onRequest };
 
 const COLS = [
+  "full_name", "email",
   "target_titles", "keywords", "exclude_keywords", "locations",
   "remote_required", "min_salary_usd",
   "preferred_industries", "excluded_industries", "notes",
@@ -50,6 +51,8 @@ export async function onRequestPost({ request, env }) {
 
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   const next = {
+    full_name:                 strOrNull(body.full_name, 200),
+    email:                     strOrNull(body.email, 320),
     target_titles_json:        JSON.stringify(safeArr(body.target_titles)),
     keywords_json:             JSON.stringify(safeArr(body.keywords)),
     exclude_keywords_json:     JSON.stringify(safeArr(body.exclude_keywords)),
@@ -136,6 +139,8 @@ function strOrNull(x, max) {
 function shapeOut(row) {
   if (!row) return null;
   return {
+    full_name:            row.full_name || "",
+    email:                row.email || "",
     target_titles:        safeJson(row.target_titles_json, []),
     keywords:             safeJson(row.keywords_json, []),
     exclude_keywords:     safeJson(row.exclude_keywords_json, []),

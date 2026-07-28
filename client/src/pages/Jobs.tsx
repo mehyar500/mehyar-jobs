@@ -34,8 +34,12 @@ export default function Jobs() {
   const [industry, setIndustry] = useState("");
   const [remote, setRemote] = useState("");
   const [fitMin, setFitMin] = useState(0);
-  const [sort, setSort] = useState<"fit" | "recent" | "company">("fit");
+  const [sort, setSort] = useState<"fit" | "recent" | "company" | "posted" | "salary">("fit");
   const [showHardNo, setShowHardNo] = useState(true);
+  const [topN, setTopN] = useState(5);
+  const [topFitMin, setTopFitMin] = useState(55);
+  const [applyingTop, setApplyingTop] = useState(false);
+  const [topResult, setTopResult] = useState<any>(null);
   const [scraping, setScraping] = useState(false);
   const [scoring, setScoring] = useState(false);
   const [applyStage, setApplyStage] = useState<Record<number, ApplyStage>>({});
@@ -148,6 +152,33 @@ export default function Jobs() {
     }
   };
 
+  const applyTopN = async () => {
+    if (!window.confirm(`This will:\n  • Pick the top ${topN} unapplied jobs at fit ≥ ${topFitMin}\n  • Create a draft application for each\n  • Run auto-submit on each (assisted-fallback mode since CF Browser Rendering is not available)\n\nContinue?`)) return;
+    setApplyingTop(true);
+    setTopResult(null);
+    try {
+      const r = await fetch(`/api/admin/applications/apply-top`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ confirm: true, fit_min: topFitMin, limit: topN }),
+      });
+      const d = await r.json();
+      setTopResult(d);
+      qc.invalidateQueries({ queryKey: ["applications"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      toast.push({
+        kind: d.ok ? "success" : "error",
+        title: d.ok ? `Applied to ${d.results.filter((x: any) => x.ok && !x.skipped).length}/${d.candidates_considered} jobs` : "Apply-top failed",
+        message: d.message || "Tap a row to see per-job result",
+      });
+    } catch (e: any) {
+      setTopResult({ ok: false, error: e?.message });
+      toast.push({ kind: "error", title: "apply-top failed", message: e?.body?.error || e?.message });
+    } finally {
+      setApplyingTop(false);
+    }
+  };
+
   const autoApply = async (jobId: number) => {
       setAutoRunning(jobId);
       setAutoRun({ status: "running", applicationId: appsByJob[jobId]?.id || null });
@@ -216,6 +247,31 @@ export default function Jobs() {
         </div>
       )}
 
+      {topResult && (
+        <div className="card">
+          <div className="row between">
+            <strong>🚀 Apply-to-Top result</strong>
+            <button className="btn btn-ghost btn-sm" onClick={() => setTopResult(null)}>close</button>
+          </div>
+          <p className="sm muted">{topResult.message}</p>
+          <table style={{ marginTop: 8 }}>
+            <thead><tr><th>#</th><th>Title</th><th>Fit</th><th>Result</th><th>Fields</th><th>Link</th></tr></thead>
+            <tbody>
+              {(topResult.results || []).map((r: any, i: number) => (
+                <tr key={i}>
+                  <td className="sm">{i+1}</td>
+                  <td className="sm">{r.title || r.job_id}</td>
+                  <td className="sm mono">{r.fit ?? "—"}</td>
+                  <td className="sm">{r.skipped ? <span className="badge">⏭ {r.reason}</span> : r.ok ? <span style={{color:"var(--good)"}}>✓</span> : <span style={{color:"var(--bad)"}}>✗ {r.error}</span>}</td>
+                  <td className="sm mono">{r.fields_detected ?? "—"}/{r.fields_filled ?? "—"}{r.llm_answers ? ` · LLM:${r.llm_answers}` : ""}</td>
+                  <td className="sm"><a href={r.job_url || r.url} target="_blank" rel="noreferrer">↗</a></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Draft preview */}
       {draftResult && (
         <DraftPreview
@@ -242,8 +298,10 @@ export default function Jobs() {
             <option value="onsite">on-site</option>
           </select>
           <select value={sort} onChange={(e) => setSort(e.target.value as any)}>
-            <option value="fit">sort: fit score</option>
+            <option value="fit">sort: fit score (best match)</option>
             <option value="recent">sort: recently added</option>
+            <option value="posted">sort: recently posted at company</option>
+            <option value="salary">sort: salary (highest first)</option>
             <option value="company">sort: company (A→Z)</option>
           </select>
         </div>
@@ -258,6 +316,25 @@ export default function Jobs() {
             <span className="muted">include hard-no</span>
           </label>
           <span className="grow" />
+          <label className="row xs" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span className="muted">top</span>
+            <select value={topN} onChange={(e) => setTopN(parseInt(e.target.value, 10))} className="tab" style={{ padding: "2px 6px" }}>
+              {[3, 5, 10, 15, 20, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <span className="muted">@ fit ≥</span>
+            <select value={topFitMin} onChange={(e) => setTopFitMin(parseInt(e.target.value, 10))} className="tab" style={{ padding: "2px 6px" }}>
+              {[0, 30, 50, 60, 70, 80, 90].map(n => <option key={n} value={n}>{n === 0 ? "all" : n}</option>)}
+            </select>
+          </label>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={applyTopN}
+            disabled={applyingTop}
+            title={`Pick top ${topN} unapplied jobs at fit ≥ ${topFitMin} and run auto-submit on each`}
+            style={{ background: "var(--accent)" }}
+          >
+            {applyingTop ? "🚀 applying…" : `🚀 apply to top ${topN}`}
+          </button>
           <span className="xs muted">{total.toLocaleString()} jobs · {items.length} shown · v2026-07-28</span>
         </div>
       </div>
