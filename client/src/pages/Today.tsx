@@ -17,13 +17,13 @@ import { useToast } from "../lib/toast";
 //
 // Auth: same JWT as the rest of the app.
 
-type View = "not_submitted" | "new_today" | "submitted";
+type View = "recent_all" | "not_submitted" | "new_today" | "submitted";
 
 export default function Today() {
   const qc = useQueryClient();
   const toast = useToast();
-  const [days, setDays] = useState(1);
-  const [view, setView] = useState<View>("not_submitted");
+  const [days, setDays] = useState(7);
+  const [view, setView] = useState<View>("recent_all");
   const [minFit, setMinFit] = useState(0);
   const [marking, setMarking] = useState<number | null>(null);
 
@@ -44,8 +44,9 @@ export default function Today() {
   const items = useMemo<any[]>(() => {
     const v = todayQ.data;
     if (!v) return [];
-    if (view === "new_today")     return (v.new_today    || []).filter(filterFn);
-    if (view === "submitted")     return (v.submitted    || []).filter(filterFn);
+    if (view === "recent_all")     return (v.recent_all   || []).filter(filterFn);
+    if (view === "new_today")      return (v.new_today    || []).filter(filterFn);
+    if (view === "submitted")      return (v.submitted    || []).filter(filterFn);
     return (v.not_submitted || []).filter(filterFn);
   }, [todayQ.data, view, minFit]);
 
@@ -124,6 +125,7 @@ export default function Today() {
         <div className="row wrap" style={{ gap: 8 }}>
           <div className="row" style={{ gap: 4 }}>
             {([
+              ["recent_all",    "🕒 Recent posts", counters.recent_all ?? (statsQ.data as any)?.jobs ?? 0],
               ["not_submitted", "⏳ Not submitted", counters.not_submitted ?? 0],
               ["new_today",     "🆕 New today",     counters.new_in_window ?? 0],
               ["submitted",     "✅ Submitted",     counters.submitted_this_window ?? 0],
@@ -204,7 +206,7 @@ function TodayRow({ row, view, busy, onMark }: { row: any; view: View; busy: boo
   const cls = score == null ? "fit-0" : score >= 90 ? "fit-90" : score >= 70 ? "fit-70" : score >= 50 ? "fit-50" : score >= 30 ? "fit-30" : "fit-0";
   const titleStr = row.title || "Untitled role";
   const url = row.url || "#";
-  const ts = view === "submitted" ? row.submitted_at : (row.first_seen_at || row.posted_at);
+  const ts = view === "submitted" ? row.submitted_at : (row.posted_at || row.first_seen_at);
 
   return (
     <tr>
@@ -291,6 +293,7 @@ function ActionCell({ row, view, busy, onMark }: { row: any; view: View; busy: b
 
 function EmptyState({ view, onRescan }: { view: View; onRescan: () => void }) {
   const messages: Record<View, { emoji: string; title: string; body: string }> = {
+    recent_all:    { emoji: "🤷", title: "No active jobs yet", body: "Hit Rescan to pull the latest from the directory." },
     not_submitted: { emoji: "🎉", title: "Nothing pending", body: "Every job in this window is either submitted or skipped. Run a fresh scan to see more." },
     new_today:     { emoji: "🤷", title: "No new jobs",     body: "No jobs were first-seen in this window. Hit Rescan to pull the latest." },
     submitted:     { emoji: "📭", title: "No submissions yet", body: "Mark a job as applied to see it here." },

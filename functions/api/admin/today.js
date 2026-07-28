@@ -38,7 +38,8 @@ export async function onRequestGet({ request, env }) {
     ORDER BY id DESC LIMIT 1
   `).first().catch(() => null);
 
-  // ---- 2. new today: jobs first seen within window ----
+  // ---- 2. new today: jobs first seen within window (ordered: most recent post first) ----
+  //    Fall back to first_seen_at when the company doesn't publish a posted_at.
   const newToday = await db.prepare(`
     SELECT
       j.id, j.title, j.url, j.location, j.remote_policy, j.department,
@@ -53,12 +54,11 @@ export async function onRequestGet({ request, env }) {
     LEFT JOIN application a ON a.job_id = j.id
     WHERE j.is_active = 1
       AND julianday(j.first_seen_at) > julianday('now', ?)
-    ORDER BY j.first_seen_at DESC
+    ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
     LIMIT ?
   `).bind(`-${days} day`, limit).all().catch((e) => ({ results: [], error: e.message }));
 
-  // ---- 3. not submitted: same window, NO submitted application ----
-  //    (drafts count as not-submitted — show them so the user can decide)
+  // ---- 3. not submitted: same window, NO submitted application, recent first ----
   const notSubmitted = await db.prepare(`
     SELECT
       j.id, j.title, j.url, j.location, j.remote_policy, j.department,
@@ -72,10 +72,30 @@ export async function onRequestGet({ request, env }) {
     LEFT JOIN application a ON a.job_id = j.id
     WHERE j.is_active = 1
       AND julianday(j.first_seen_at) > julianday('now', ?)
-      AND (a.id IS NULL OR a.status IN ('draft','failed'))
-    ORDER BY jf.score DESC NULLS LAST, j.first_seen_at DESC
+      AND (a.id IS NULL OR a.status IN ('draft','failed','withdrawn'))
+    ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
     LIMIT ?
   `).bind(`-${days} day`, limit).all().catch((e) => ({ results: [], error: e.message }));
+
+  // ---- 3b. recent across ALL active jobs (no window), recent first ----
+  //    The "aggregate" view: every active job, posted_at-first. This is what
+  //    the user asks for when they say "show the most recent posts" — not
+  //    gated by when we discovered the job, just sorted by posting date.
+  const recentAll = await db.prepare(`
+    SELECT
+      j.id, j.title, j.url, j.location, j.remote_policy, j.department,
+      j.first_seen_at, j.posted_at,
+      c.id AS company_id, c.name AS company_name, c.slug AS company_slug, c.industry,
+      jf.score, jf.hard_no,
+      a.id AS application_id, a.status AS application_status
+    FROM job j
+    JOIN company c ON c.id = j.company_id
+    LEFT JOIN job_fit jf ON jf.job_id = j.id
+    LEFT JOIN application a ON a.job_id = j.id
+    WHERE j.is_active = 1
+    ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
+    LIMIT ?
+  `).bind(limit).all().catch((e) => ({ results: [], error: e.message }));
 
   // ---- 4. submitted: any application with status='submitted', recent first ----
   const submitted = await db.prepare(`
@@ -123,6 +143,7 @@ export async function onRequestGet({ request, env }) {
     },
     new_today:      newToday.results    || [],
     not_submitted:  notSubmitted.results || [],
+    recent_all:     recentAll.results   || [],
     submitted:      submitted.results   || [],
   }, 200, request, env);
 }

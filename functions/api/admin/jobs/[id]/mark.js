@@ -11,8 +11,8 @@
 //   - record an application_event row for audit.
 //   - skip if status is already 'submitted' and no new info provided (idempotent).
 
-import { requireAdmin, json, onRequestOptions } from "../../../_shared/adminAuth.js";
-import { ensureSchema } from "../../../_shared/db.js";
+import { requireAdmin, json, onRequestOptions } from "../../../../_shared/adminAuth.js";
+import { ensureSchema } from "../../../../_shared/db.js";
 
 export { onRequestOptions as onRequest };
 
@@ -27,9 +27,9 @@ export async function onRequestPost({ request, env, params }) {
   const jobId = parseInt(params?.id, 10);
   if (!Number.isFinite(jobId)) return json({ ok: false, error: "bad_job_id" }, 400, request, env);
 
-  let body: any = {};
+  let body = {};
   try { body = await request.json(); } catch {}
-  const action = String(body?.action || "").toLowerCase();
+  const action = String((body && body.action) || "").toLowerCase();
   if (!["applied", "applied_external", "skipped"].includes(action)) {
     return json({ ok: false, error: "bad_action", allowed: ["applied", "applied_external", "skipped"] }, 400, request, env);
   }
@@ -39,8 +39,8 @@ export async function onRequestPost({ request, env, params }) {
   if (!job) return json({ ok: false, error: "job_not_found" }, 404, request, env);
 
   const now = new Date().toISOString();
-  let status: string, method: string, submissionUrl: string | null;
-  let eventKind: string, eventDetail: string;
+  let status, method, submissionUrl;
+  let eventKind, eventDetail;
 
   if (action === "applied") {
     status = "submitted"; method = "manual"; submissionUrl = null;
@@ -51,13 +51,13 @@ export async function onRequestPost({ request, env, params }) {
     eventKind = "submitted_external_link"; eventDetail = `via ${submissionUrl}`;
   } else { // skipped
     status = "withdrawn"; method = "manual"; submissionUrl = null;
-    eventKind = "skipped"; eventDetail = body?.note ? `note: ${String(body.note).slice(0, 200)}` : "skipped from Today";
+    eventKind = "skipped"; eventDetail = body && body.note ? `note: ${String(body.note).slice(0, 200)}` : "skipped from Today";
   }
 
   // Look up existing application row (UNIQUE job_id)
   const existing = await db.prepare(`SELECT id, status FROM application WHERE job_id = ?`).bind(jobId).first().catch(() => null);
 
-  let appId: number;
+  let appId;
   if (existing?.id) {
     // Already submitted + same status → idempotent no-op
     if (existing.status === status && status === "submitted") {
