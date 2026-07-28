@@ -305,11 +305,17 @@ export default function Jobs() {
                       </span>
                     </td>
                     <td data-label="Title">
-                      <a href={j.url} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "none" }}>
-                        <div className="h3">{j.title}</div>
-                        {j.department ? <div className="xs dim">{j.department}{j.team ? " · " + j.team : ""}</div> : null}
-                      </a>
-                    </td>
+                                          <a
+                                            href={j.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="job-title-link"
+                                            style={{ color: "inherit", textDecoration: "none" }}
+                                          >
+                                            <div className="h3">{j.title}</div>
+                                            {j.department ? <div className="xs dim">{j.department}{j.team ? " · " + j.team : ""}</div> : null}
+                                          </a>
+                                        </td>
                     <td data-label="Company">
                       <a href={`/companies?q=${encodeURIComponent(j.company_name)}`} className="row" style={{ color: "inherit", textDecoration: "none", flexWrap: "wrap" }}>
                         <span>{j.company_name}</span>
@@ -367,21 +373,78 @@ function MobileAppliedSummary({ appsQ }: { appsQ: any }) {
 }
 
 function ApplyCell({ job, app, stage, onApply, onSubmit, onAutoApply, autoRunning }: { job: any; app: any; stage: ApplyStage; onApply: () => void; onSubmit: () => void; onAutoApply: () => void; autoRunning: boolean }) {
+  // Always-available actions: open the original job URL, and (if supported) auto-apply.
+  // These appear alongside the draft/submit controls so the user is never trapped.
+  const openLink = (
+    <a
+      href={job.url}
+      target="_blank"
+      rel="noreferrer"
+      className="btn btn-ghost btn-sm"
+      title={`Open original posting: ${job.url}`}
+      data-testid={`open-${job.id}`}
+      style={{ textDecoration: "none", flexShrink: 0 }}
+    >
+      ↗
+    </a>
+  );
+  const autoBtn = (
+    <button
+      className="btn btn-ghost btn-sm"
+      onClick={() => onAutoApply()}
+      disabled={autoRunning}
+      title="Automated apply: open headless browser, fill form, upload resume, click submit. May violate ATS ToS."
+      data-testid={`auto-apply-${job.id}`}
+      style={{ flexShrink: 0 }}
+    >
+      {autoRunning ? <span className="spinner" /> : "🤖"}
+    </button>
+  );
+
   if (stage === "drafting") {
-    return <div className="apply-sticky"><div className="progress-bar indeterminate"><div className="fill" /></div><span className="xs dim">Drafting cover letter…</span></div>;
+    return (
+      <div className="apply-sticky">
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+          <div className="progress-bar indeterminate" style={{ flex: 1 }}><div className="fill" /></div>
+          <span className="xs dim" style={{ flex: 1 }}>Drafting cover letter…</span>
+          {openLink}
+          {autoBtn}
+        </div>
+      </div>
+    );
   }
   if (stage === "submitting") {
-    return <div className="apply-sticky"><div className="progress-bar indeterminate"><div className="fill" /></div><span className="xs dim"><span className="spinner" /> Submitting + sending email…</span></div>;
+    return (
+      <div className="apply-sticky">
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+          <span className="spinner" />
+          <span className="xs dim" style={{ flex: 1 }}>Submitting + sending email…</span>
+          {openLink}
+        </div>
+      </div>
+    );
   }
   if (stage === "submitted") {
     return (
-      <a href="/applications" className="status-pill submitted" data-testid={`applied-${job.id}`} style={{ textDecoration: "none" }}>
-        ✓ applied
-      </a>
+      <div className="apply-sticky">
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+          <a href={`/applications/${app.id}`} className="status-pill submitted" style={{ textDecoration: "none", flex: 1 }}>✓ applied {app.submitted_at ? relativeTime(app.submitted_at) : ""}</a>
+          {openLink}
+          {autoBtn}
+        </div>
+      </div>
     );
   }
   if (stage === "error") {
-    return <button className="btn btn-sm btn-danger" onClick={onApply}>Retry</button>;
+    return (
+      <div className="apply-sticky">
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+          <button className="btn btn-sm btn-danger" onClick={onApply} style={{ flex: 1 }}>Retry</button>
+          {openLink}
+          {autoBtn}
+        </div>
+      </div>
+    );
   }
   // Idle
   if (app) {
@@ -389,32 +452,57 @@ function ApplyCell({ job, app, stage, onApply, onSubmit, onAutoApply, autoRunnin
     if (status === "draft") {
       return (
         <div className="apply-sticky">
-          <div className="row" style={{ gap: 4 }}>
+          <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
             <span className="status-pill draft">📝 draft</span>
-            <button className="btn btn-sm btn-primary" onClick={onSubmit} data-testid={`submit-${job.id}`}>Submit & email</button>
+            <button className="btn btn-sm btn-primary" onClick={onSubmit} data-testid={`submit-${job.id}`} style={{ flex: 1 }}>Submit & email</button>
+            {openLink}
+            {autoBtn}
           </div>
         </div>
       );
     }
     if (status === "submitted") {
-      return <a href={`/applications/${app.id}`} className="status-pill submitted" style={{ textDecoration: "none" }}>✓ applied {app.submitted_at ? relativeTime(app.submitted_at) : ""}</a>;
+      return (
+        <div className="apply-sticky">
+          <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+            <a href={`/applications/${app.id}`} className="status-pill submitted" style={{ textDecoration: "none", flex: 1 }}>✓ applied {app.submitted_at ? relativeTime(app.submitted_at) : ""}</a>
+            {openLink}
+            {autoBtn}
+          </div>
+        </div>
+      );
     }
     if (status === "failed") {
-      return <a href={`/applications/${app.id}`} className="status-pill failed" style={{ textDecoration: "none" }}>failed</a>;
+      return (
+        <div className="apply-sticky">
+          <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+            <a href={`/applications/${app.id}`} className="status-pill failed" style={{ textDecoration: "none", flex: 1 }}>failed</a>
+            {openLink}
+            {autoBtn}
+          </div>
+        </div>
+      );
     }
     if (status === "withdrawn") {
-      return <span className="status-pill withdrawn">withdrawn</span>;
+      return (
+        <div className="apply-sticky">
+          <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+            <span className="status-pill withdrawn" style={{ flex: 1 }}>withdrawn</span>
+            {openLink}
+            {autoBtn}
+          </div>
+        </div>
+      );
     }
   }
   return (
     <div className="apply-sticky">
-      <div className="row" style={{ gap: 6 }}>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
         <button className="btn btn-primary" onClick={onApply} data-testid={`apply-${job.id}`} style={{ flex: 1 }}>
           Apply
         </button>
-        <button className="btn btn-ghost" onClick={() => onAutoApply()} disabled={autoRunning} title="Open headless browser, fill form, upload resume, click submit. ⚠️ May violate ATS ToS." data-testid={`auto-apply-${job.id}`}>
-          {autoRunning ? <span className="spinner" /> : "🤖"}
-        </button>
+        {openLink}
+        {autoBtn}
       </div>
     </div>
   );

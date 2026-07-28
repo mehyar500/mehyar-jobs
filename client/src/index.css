@@ -249,8 +249,32 @@ tr:hover td { background: rgba(124,58,237,.04); }
     border-radius: 0 0 12px 12px;
     z-index: 5;
   }
-  .apply-sticky .btn { width: 100%; justify-content: center; padding: 10px 14px; font-size: 13px; }
+  .apply-sticky .btn { padding: 10px 14px; font-size: 13px; }
+  .apply-sticky .row { flex-wrap: wrap; }
 }
+
+/* ── Job title link affordance ── */
+.job-title-link {
+  display: block;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.job-title-link:hover {
+  background: rgba(124, 92, 255, 0.08);
+  color: var(--accent);
+}
+.job-title-link:active { background: rgba(124, 92, 255, 0.16); }
+.job-title-link::after {
+  content: " ↗";
+  opacity: 0.4;
+  font-size: 0.85em;
+  margin-left: 4px;
+  transition: opacity 120ms ease;
+}
+.job-title-link:hover::after { opacity: 1; }
 
 /* ── Progress bar ── */
 .progress-bar {
