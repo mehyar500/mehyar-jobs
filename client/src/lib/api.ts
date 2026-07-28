@@ -83,6 +83,10 @@ export const api = {
   jobs:         (q: any = {}) => apiFetch("/api/admin/jobs?" + new URLSearchParams(q).toString()),
   triggerScrape:() => apiFetch("/api/admin/cron/scrape", { method: "POST" }),
   triggerScore: () => apiFetch("/api/admin/cron/score",  { method: "POST" }),
+  pipeline:     () => apiFetch("/api/admin/pipeline"),
+  today:         (days = 1) => apiFetch(`/api/admin/today?days=${days}`),
+  markJob:       (job_id: number, body: { action: "applied" | "applied_external" | "skipped"; url?: string; note?: string }) =>
+                   apiFetch(`/api/admin/jobs/${job_id}/mark`, { method: "POST", body: JSON.stringify(body) }),
 
   // Applications
   applications:        (status?: string) => apiFetch("/api/admin/applications" + (status ? "?status=" + encodeURIComponent(status) : "")),
@@ -97,6 +101,7 @@ export const api = {
   bulkAutoApply:       (body: any) => apiFetch(`/api/admin/applications/bulk-auto-submit`, { method: "POST", body: JSON.stringify(body) }),
   getAutoSubmitRun:    (id: number) => apiFetch(`/api/admin/applications/${id}/auto-submit`),
   formFill:            (id: number, fields: any[], screenshot?: string) => apiFetch(`/api/admin/applications/${id}/form-fill`, { method: "POST", body: JSON.stringify({ fields, screenshot }) }),
+  recordLocalRun:       (id: number, run: any) => apiFetch(`/api/admin/applications/${id}/local-run`, { method: "POST", body: JSON.stringify(run) }),
   // Queue (max 50/day, dedup)
   getQueue:            (status?: string) => apiFetch("/api/admin/applications/queue" + (status ? "?status=" + encodeURIComponent(status) : "")),
   enqueue:             (body: { job_ids?: number[]; fit_min?: number; max?: number; run_now?: boolean }) =>

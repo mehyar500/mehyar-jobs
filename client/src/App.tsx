@@ -7,6 +7,8 @@ import Jobs from "./pages/Jobs";
 import Companies from "./pages/Companies";
 import Profile from "./pages/Profile";
 import About from "./pages/About";
+import Pipeline from "./pages/Pipeline";
+import Today from "./pages/Today";
 import { ApplicationsList, ApplicationDetail } from "./pages/Applications";
 
 const qc = new QueryClient({
@@ -16,9 +18,11 @@ const qc = new QueryClient({
 });
 
 const TABS = [
-  { key: "jobs",         label: "🎯 Jobs",         href: "/" },
+  { key: "today",        label: "📅 Today",        href: "/" },
+  { key: "jobs",         label: "🎯 Jobs",         href: "/jobs" },
   { key: "applications", label: "📤 Applications", href: "/applications" },
   { key: "companies",    label: "🏢 Companies",    href: "/companies" },
+  { key: "pipeline",     label: "🧪 Pipeline",     href: "/pipeline" },
   { key: "profile",      label: "🪪 Profile",      href: "/profile" },
   { key: "about",        label: "ℹ️ How",          href: "/about" },
 ];
@@ -106,7 +110,7 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
 }
 
 function Home() {
-  return <Jobs />;
+  return <Today />;
 }
 
 function Shell() {
@@ -128,10 +132,12 @@ function Shell() {
       <main className="container" style={{ padding: "16px" }}>
         <Switch>
           <Route path="/" component={Home} />
+          <Route path="/jobs" component={Jobs} />
           <Route path="/companies" component={Companies} />
           <Route path="/applications" component={ApplicationsList} />
           <Route path="/applications/:id" component={ApplicationDetail} />
           <Route path="/profile" component={Profile} />
+          <Route path="/pipeline" component={Pipeline} />
           <Route path="/about" component={About} />
           <Route><div className="card"><h2 className="h2">404</h2></div></Route>
         </Switch>
