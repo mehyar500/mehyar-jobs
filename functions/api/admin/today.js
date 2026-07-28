@@ -38,8 +38,7 @@ export async function onRequestGet({ request, env }) {
     ORDER BY id DESC LIMIT 1
   `).first().catch(() => null);
 
-  // ---- 2. new today: jobs first seen within window (ordered: most recent post first) ----
-  //    Fall back to first_seen_at when the company doesn't publish a posted_at.
+  // ---- 2. new today: jobs first seen within window (latest scrape = highest id) ----
   const newToday = await db.prepare(`
     SELECT
       j.id, j.title, j.url, j.location, j.remote_policy, j.department,
@@ -54,7 +53,7 @@ export async function onRequestGet({ request, env }) {
     LEFT JOIN application a ON a.job_id = j.id
     WHERE j.is_active = 1
       AND julianday(j.first_seen_at) > julianday('now', ?)
-    ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
+    ORDER BY j.id DESC
     LIMIT ?
   `).bind(`-${days} day`, limit).all().catch((e) => ({ results: [], error: e.message }));
 
@@ -73,14 +72,15 @@ export async function onRequestGet({ request, env }) {
     WHERE j.is_active = 1
       AND julianday(j.first_seen_at) > julianday('now', ?)
       AND (a.id IS NULL OR a.status IN ('draft','failed','withdrawn'))
-    ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
+    ORDER BY j.id DESC
     LIMIT ?
   `).bind(`-${days} day`, limit).all().catch((e) => ({ results: [], error: e.message }));
 
-  // ---- 3b. recent across ALL active jobs (no window), recent first ----
-  //    The "aggregate" view: every active job, posted_at-first. This is what
-  //    the user asks for when they say "show the most recent posts" — not
-  //    gated by when we discovered the job, just sorted by posting date.
+  // ---- 3b. recent across ALL active jobs (no window), most recently scraped first ----
+  //    The "aggregate" view. Sort by j.id DESC (latest scrape = highest ID).
+  //    This is stable: scraping a job refreshes last_seen_at but not its ID, so
+  //    newly-scrape jobs float to the top, while brand-new (post-NOW) jobs that
+  //    didn't have posted_at set still surface in the order they were discovered.
   let recentAll;
   try {
     recentAll = await db.prepare(`
@@ -95,7 +95,7 @@ export async function onRequestGet({ request, env }) {
       LEFT JOIN job_fit jf ON jf.job_id = j.id
       LEFT JOIN application a ON a.job_id = j.id
       WHERE j.is_active = 1
-      ORDER BY COALESCE(j.posted_at, j.first_seen_at) DESC
+      ORDER BY j.id DESC
       LIMIT ?
     `).bind(limit).all();
     if (!recentAll) recentAll = { results: [] };

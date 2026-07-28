@@ -340,13 +340,74 @@ function extractJobLinks(html, baseUrl) {
 function looksLikeJob(href, title) {
   const h = href.toLowerCase();
   const t = title.toLowerCase();
-  if (/\b(job|jobs|career|careers|position|positions|posting|postings|opening|openings|role|roles)\b/.test(h)) return true;
-  if (/(\/job|\/jobs|\/position|\/posting|\/opening|\/role|\/career|\/careers|\/apply)/.test(h)) return true;
-  // Common words in titles
-  if (/\b(engineer|developer|architect|manager|director|analyst|scientist|designer|associate|consultant|specialist|lead|head of|vp|officer|intern)\b/.test(t)) {
-    // And the href isn't just a section anchor or homepage
-    if (h.length > 12) return true;
+  // Hard-reject obvious category / nav / landing-page titles FIRST.
+  // These come from career landing pages with nav links like "All Jobs",
+  // "Jobs By Category", "Cybersecurity", "Featured career paths".
+  const NAV_TITLE_BLOCKLIST = [
+    /^all jobs$/,
+    /^jobs$/,
+    /^job openings$/,
+    /^job opportunities$/,
+    /^see all jobs$/,
+    /^see all opportunities$/,
+    /^view all jobs$/,
+    /^view all opportunities$/,
+    /^find (your|a) (next )?job/,
+    /^job search$/,
+    /^job matcher/,
+    /^jobs by (category|business|department|team|location|function|area)/,
+    /^jobs in/,
+    /^careers?$/,
+    /^career (paths|areas?|opportunities|home)/,
+    /^featured (career|jobs?|roles?|opportunities|paths)/,
+    /^explore (jobs|careers|opportunities|roles)/,
+    /^browse (jobs|careers|opportunities|roles)/,
+    /^search (jobs|openings|roles)/,
+    /^open positions?$/,
+    /^open roles?$/,
+    /^available (positions?|roles?|jobs?|opportunities)/,
+    /^current (openings|opportunities|vacancies)/,
+    /^(internship|co-?op|graduate|university|student) (opportunities|programs?|jobs?)$/,
+    /^(early|new grad|university) (career|jobs?|opportunities|programs)/,
+    /^applicant (privacy|notice|rights)/,
+    /^equal (employment )?opportunity/,
+    /^fraud (alert|warning)/,
+    /^read more\.?$/,
+    /^learn more\.?$/,
+    /^see more\.?$/,
+    /^view details?$/,
+    /^apply (now|here|today|online)/,
+    /^how to apply$/,
+    /^sign in$/,
+    /^login$/,
+  ];
+  for (const pat of NAV_TITLE_BLOCKLIST) {
+    if (pat.test(t)) return false;
   }
+  // Too short = nav noise
+  if (t.length < 4) return false;
+  // Pure category names (1-3 words, no role term, no seniority, no number) — likely nav
+  const ROLE_WORDS = /\b(engineer|developer|architect|manager|director|analyst|scientist|designer|associate|consultant|specialist|lead|head of|vp|officer|intern|administrator|coordinator|technician|operator|advisor|representative|executive|principal|staff|recruiter|writer|editor|producer|researcher|accountant|attorney|lawyer|nurse|driver|pilot|chef|instructor|trainer|adviser|engineer in|sw|se|sre|qa|pm|ux|ui|dev|eng|mle|data)\b/;
+  const SENIORITY = /\b(senior|junior|staff|principal|lead|associate|entry[-\s]?level|mid[-\s]?level|experienced|ii|iii|iv|v|1|2|3|4|5)\b/i;
+  const hasRole = ROLE_WORDS.test(t) || SENIORITY.test(t);
+  // Accept if:
+  //   (a) href clearly points to a single job (numeric id, /job/, /jobs/, /position/, /posting/, /role/)
+  //   (b) title has a role word AND href is non-trivial (not just homepage or section anchor)
+  const hrefSaysJob = /\/job[s]?\//i.test(h)
+                    || /\/position[s]?\//i.test(h)
+                    || /\/posting[s]?\//i.test(h)
+                    || /\/role[s]?\//i.test(h)
+                    || /\/opening[s]?\//i.test(h)
+                    || /\/career[s]?\//i.test(h)
+                    || /\/apply/i.test(h)
+                    || /\/job-\d+/i.test(h)
+                    || /\/job\d+\b/i.test(h)
+                    || /job[-_]?id=/i.test(h)
+                    || /\/[a-z0-9-]+\/\d{4,}\/?$/i.test(h); // /something/12345 — classic /slug/ID pattern
+  if (hrefSaysJob && hasRole) return true;
+  if (hasRole && h.length > 30) return true; // longer href + role word is safer
+  // Generic category names like "Cybersecurity", "Engineering", "Data Science" alone
+  // (no role word) → not a job.
   return false;
 }
 
