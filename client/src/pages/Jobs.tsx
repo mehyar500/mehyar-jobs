@@ -253,7 +253,7 @@ export default function Jobs() {
             <span className="muted">include hard-no</span>
           </label>
           <span className="grow" />
-          <span className="xs muted">{total.toLocaleString()} jobs · {items.length} shown</span>
+          <span className="xs muted">{total.toLocaleString()} jobs · {items.length} shown · v2026-07-28</span>
         </div>
       </div>
 
@@ -265,6 +265,13 @@ export default function Jobs() {
         {jobsQ.isLoading ? (
           <div className="col" style={{ padding: 16, gap: 8 }}>
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skel" />)}
+          </div>
+        ) : jobsQ.isError ? (
+          <div className="col" style={{ padding: 32, textAlign: "center", gap: 8 }}>
+            <span style={{ fontSize: 36 }}>⚠️</span>
+            <h2 className="h2">Could not load jobs</h2>
+            <p className="sm muted">{(jobsQ.error as any)?.body?.error || (jobsQ.error as any)?.message || "Unknown error"}</p>
+            <button className="btn btn-primary" onClick={() => jobsQ.refetch()}>Retry</button>
           </div>
         ) : items.length === 0 ? (
           <div className="col" style={{ padding: 32, textAlign: "center", gap: 8 }}>

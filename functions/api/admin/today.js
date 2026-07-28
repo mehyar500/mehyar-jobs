@@ -149,6 +149,7 @@ export async function onRequestGet({ request, env }) {
       recent_all: Array.isArray(recentAll?.results) ? recentAll.results.length : 0,
       submitted_today: submittedToday?.n || 0,
       submitted_this_window: submittedWeek?.n || 0,
+      build: "2026-07-28-fix3",
     },
     query_errors: {
       new_today: newToday?.error || null,
