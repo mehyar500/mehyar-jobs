@@ -53,8 +53,8 @@ export async function login(username: string, password: string) {
   return j;
 }
 
-async function apiFetch(path: string, init: RequestInit = {}) {
-  const token = getToken();
+async function apiFetch(path: string, init: RequestInit = {}): Promise<any> {
+  let token = getToken();
   const headers = new Headers(init.headers || {});
   if (token) headers.set("authorization", `Bearer ${token}`);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
@@ -62,6 +62,20 @@ async function apiFetch(path: string, init: RequestInit = {}) {
   const text = await r.text();
   let body: any;
   try { body = JSON.parse(text); } catch { body = { raw: text }; }
+
+  // Auto-handle expired tokens: clear and notify the app so it can re-login.
+  // Without this, every admin endpoint silently returns 401 and the page
+  // looks empty ("0 jobs shown").
+  if (!r.ok && (r.status === 401 || body?.error === "expired" || body?.error === "missing_token" || body?.error === "bad_signature")) {
+    clearToken();
+    window.dispatchEvent(new CustomEvent("mehyar:auth-expired", { detail: { path, status: r.status, body } }));
+    const err = new Error(`${r.status} ${path} ${body?.error || body?.message || ""}`);
+    (err as any).status = r.status;
+    (err as any).body = body;
+    (err as any).expired = true;
+    throw err;
+  }
+
   if (!r.ok) {
     const err = new Error(`${r.status} ${path} ${body?.error || body?.message || ""}`);
     (err as any).status = r.status;

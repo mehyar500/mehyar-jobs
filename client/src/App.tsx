@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Route, Switch, Link, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { api, getToken, login, clearToken } from "./lib/api";
-import { ToastProvider } from "./lib/toast";
+import { ToastProvider, useToast } from "./lib/toast";
 import Jobs from "./pages/Jobs";
 import Companies from "./pages/Companies";
 import Profile from "./pages/Profile";
@@ -117,6 +117,17 @@ function Shell() {
   const token = getToken();
   const principal = JSON.parse(localStorage.getItem("mehyar_jobs_principal_v1") || "null");
   const [isLoggedIn, setIsLoggedIn] = useState(!!token);
+  const toast = useToast();
+
+  useEffect(() => {
+    const onExpired = () => {
+      clearToken();
+      setIsLoggedIn(false);
+      toast.push({ kind: "error", title: "Session expired", message: "Please sign in again." });
+    };
+    window.addEventListener("mehyar:auth-expired", onExpired);
+    return () => window.removeEventListener("mehyar:auth-expired", onExpired);
+  }, []);
 
   if (!isLoggedIn) {
     return <Login onLoggedIn={() => setIsLoggedIn(true)} />;
