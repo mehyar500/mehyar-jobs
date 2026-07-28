@@ -149,23 +149,28 @@ export default function Jobs() {
   };
 
   const autoApply = async (jobId: number) => {
-    setAutoRunning(jobId);
-    setAutoRun({ status: "running", applicationId: appsByJob[jobId]?.id || null });
-    try {
-      const app = appsByJob[jobId] || await api.draftApplication(jobId);
-      setAutoRun({ status: "running", applicationId: app.id });
-      const r = await api.autoSubmit(app.id);
-      setAutoRun({ status: "show", ...r });
-      qc.invalidateQueries({ queryKey: ["applications"] });
-      qc.invalidateQueries({ queryKey: ["jobs"] });
-      toast.push({ kind: "success", title: "Auto-apply run finished", message: "Review the captured result before relying on the submission." });
-    } catch (e: any) {
-      setAutoRun(null);
-      toast.push({ kind: "error", title: "Auto-apply failed", message: e?.body?.error || e?.message });
-    } finally {
-      setAutoRunning(null);
-    }
-  };
+      setAutoRunning(jobId);
+      setAutoRun({ status: "running", applicationId: appsByJob[jobId]?.id || null });
+      try {
+        const app = appsByJob[jobId] || await api.draftApplication(jobId);
+        setAutoRun({ status: "running", applicationId: app.id });
+        const r = await api.autoSubmit(app.id);
+        // Surface "assisted" mode distinctly so the viewer can render
+        // the prepared form answers + a clear next-step CTA.
+        const title = r?.mode === "assisted"
+          ? "Assisted apply ready — open the job URL and paste the answers"
+          : "Auto-apply run finished";
+        setAutoRun({ status: "show", ...r });
+        qc.invalidateQueries({ queryKey: ["applications"] });
+        qc.invalidateQueries({ queryKey: ["jobs"] });
+        toast.push({ kind: "success", title, message: r?.message || "Review the captured result before relying on the submission." });
+      } catch (e: any) {
+        setAutoRun(null);
+        toast.push({ kind: "error", title: "Auto-apply failed", message: e?.body?.error || e?.message });
+      } finally {
+        setAutoRunning(null);
+      }
+    };
 
   return (
     <div className="col" style={{ gap: 16 }}>
@@ -562,6 +567,69 @@ function DraftPreview({ draft, onClose, onSubmit }: { draft: any; onClose: () =>
 }
 
 function AutoSubmitViewer({ run, onClose }: { run: any; onClose: () => void }) {
+  // Assisted (no Browser Rendering): show the prepared form answers
+  // and a "Open the job URL + paste these answers" workflow.
+  if (run?.mode === "assisted") {
+    const llm = run.llm_answers || [];
+    const fields = run.form_filled || {};
+    return (
+      <div className="card" style={{ borderColor: "var(--accent)" }}>
+        <div className="row between">
+          <strong>🤖 Assisted apply — form answers drafted</strong>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>close</button>
+        </div>
+        <p className="sm muted" style={{ marginTop: 4 }}>
+          Browser Rendering isn't enabled on this Cloudflare account, so we fetched the job HTML and drafted answers for you. Open the link below, paste the values into the form, then come back and tap <em>Submit & email</em> on the row.
+        </p>
+        <p className="sm" style={{ marginTop: 8 }}>
+          <strong>Job URL: </strong>
+          <a href={run.job_url} target="_blank" rel="noreferrer">{run.job_url}</a>
+        </p>
+        <p className="xs muted" style={{ marginTop: 4 }}>
+          Detected {run.fields_detected} form fields · Filled {run.fields_filled} values
+        </p>
+
+        <details style={{ marginTop: 12 }} open>
+          <summary className="sm"><strong>Pre-filled values (paste these into the form)</strong></summary>
+          <table style={{ marginTop: 8 }}>
+            <thead><tr><th>Field</th><th>Value</th><th>Source</th></tr></thead>
+            <tbody>
+              {Object.entries(fields).map(([k, v]: any) => (
+                <tr key={k}>
+                  <td><code className="mono xs">{k}</code></td>
+                  <td className="sm" style={{ wordBreak: "break-word", maxWidth: 360 }}>{String(v.value ?? "—").slice(0, 600)}</td>
+                  <td className="sm dim">{v.source ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+
+        {llm.length > 0 ? (
+          <details style={{ marginTop: 8 }} open>
+            <summary className="sm"><strong>LLM-drafted answers ({llm.length})</strong></summary>
+            <div style={{ marginTop: 8 }} className="col" data-gap="12">
+              {llm.map((a: any, i: number) => (
+                <div key={i} className="card card-tight" style={{ padding: 10 }}>
+                  <div className="xs dim mono">{a.field || a.label || `Answer ${i + 1}`}</div>
+                  <div className="sm" style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{a.answer}</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+
+        <details style={{ marginTop: 8 }}>
+          <summary className="sm">Log ({run.log?.length || 0} steps)</summary>
+          <pre className="mono xs" style={{ marginTop: 8, padding: 8, background: "var(--bg-elev)", borderRadius: 4, maxHeight: 200, overflow: "auto" }}>
+            {(run.log || []).map((l: any) => JSON.stringify(l)).join("\n")}
+          </pre>
+        </details>
+      </div>
+    );
+  }
+
+  // Headless path (Browser Rendering available)
   return (
     <div className="card" style={{ borderColor: run.confirmed_by_page ? "var(--good)" : "var(--warn)" }}>
       <div className="row between">

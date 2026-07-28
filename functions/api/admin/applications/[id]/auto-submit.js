@@ -27,6 +27,19 @@
 // own confirmation email to whatever address the form was filled
 // with (we put the user's real email in the form, not a forwarder,
 // because the user wants to receive the real reply in their inbox).
+//
+// ── FALLBACK when CF Browser Rendering is not available ──
+//
+// If the user's CF account doesn't have Browser Rendering enabled
+// (CF API returns code 7003 / "Could not route" — happens on free
+// plans), we instead:
+//   1. Fetch the job URL HTML via a plain fetch (no JS execution)
+//   2. Extract the form fields with the same extractFormFields()
+//   3. Ask the LLM to draft answers to each question
+//   4. Write a `assisted_run` row with the prepared answers + a
+//      "Copy to clipboard" payload so the user can manually paste
+//      into the form
+// This way the 🤖 button is always useful, even without BR.
 
 import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../../_shared/adminAuth.js";
 import { ensureSchema } from "../../../../_shared/db.js";
@@ -78,13 +91,6 @@ export async function onRequestPost({ request, env, params }) {
       message: "Upload your resume (PDF/DOCX) on the Profile tab before auto-submitting.",
     }, 400, request, env);
   }
-  if (!profile.linkedin_url && !profile.github_url) {
-    return json({
-      ok: false,
-      error: "no_profile_links",
-      message: "Add at least your LinkedIn or GitHub URL on the Profile tab so the form can fill them in.",
-    }, 400, request, env);
-  }
 
   // Create the auto-submit run row
   const runRow = await env.JOBS_DB.prepare(`
@@ -99,10 +105,54 @@ export async function onRequestPost({ request, env, params }) {
     INSERT INTO application_event (application_id, kind, detail) VALUES (?, 'auto_submit_started', ?)
   `).bind(id, JSON.stringify({ run_id: runId, url: app.job_url, by: "automation" })).run().catch(() => null);
 
-  // Execute the headless run in the background (don't block the response).
-  // Note: we wait for it because the user wants to see the result inline.
-  // CF Pages Functions support up to ~30s on free plan; this may need to
-  // be moved to a Worker + queue for longer runs.
+  // ── BR check: try to create a session. If 7003 "Could not route",
+  //    Browser Rendering isn't enabled on this account → use assisted
+  //    fallback (HTML fetch + LLM prep, no submission).
+  let browserOk = false;
+  let brProbeSessionId = null;
+  try {
+    const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+    const apiKey    = env.CLOUDFLARE_API_KEY || env.CLOUDFLARE_API_TOKEN;
+    if (accountId && apiKey) {
+      const probe = await cfFetch(env, "/browser_rendering/sessions", { method: "POST", body: {} });
+      const ok = probe?.success === true;
+      browserOk = ok;
+      brProbeSessionId = probe?.result?.id;
+      if (brProbeSessionId) {
+        // Close the probe immediately; we'll open a fresh one if we proceed with full automation.
+        await cfFetch(env, `/browser_rendering/sessions/${brProbeSessionId}`, { method: "DELETE" }).catch(() => null);
+      }
+    }
+  } catch (e) {
+    // Any error here is fine — treat as BR unavailable.
+    browserOk = false;
+  }
+
+  if (!browserOk) {
+      // ── ASSISTED FALLBACK PATH ──
+      // No browser rendering. Fetch the job HTML, extract form fields,
+      // ask the LLM to draft answers, and return them so the user can
+      // paste them into the form manually.
+      try {
+        const result = await runAssisted(env, app, profile, runId, id);
+        return json(result, 200, request, env);
+      } catch (e) {
+        await env.JOBS_DB.prepare(`
+          UPDATE auto_submit_run SET status = 'failed', error = ?, finished_at = datetime('now') WHERE id = ?
+        `).bind(String(e?.message || e).slice(0, 500), runId).run();
+        await env.JOBS_DB.prepare(`
+          UPDATE application SET status = 'draft', updated_at = datetime('now') WHERE id = ?
+        `).bind(id).run();
+        return json({
+          ok: false,
+          error: "automation_failed",
+          detail: String(e?.message || e),
+          fallback_used: "assisted",
+        }, 500, request, env);
+      }
+    }
+
+  // ── FULL HEADLESS AUTOMATION PATH (BR available) ──
   try {
     const result = await runAutomation(env, app, profile, runId);
     return json(result, 200, request, env);
@@ -150,6 +200,170 @@ export async function onRequestGet({ request, env, params }) {
 // 4. Submit the form (click the Submit button)
 // 5. Screenshot the post-submit page (the "thanks for applying" page)
 // 6. Update the application status + store the run + screenshots
+async function runAssisted(env, app, profile, runId, id) {
+  // Fallback when CF Browser Rendering is unavailable.
+  // We fetch the job HTML via plain fetch, extract form fields,
+  // ask the LLM to draft answers for free-form questions, and
+  // return everything the user needs to paste into the form.
+  const log = [];
+  const formFilled = {};
+  const jobUrl = app.job_url || app.company_careers_url;
+  log.push({ step: "assisted_fallback_started", reason: "CF Browser Rendering unavailable on this account" });
+
+  let html = "";
+  let fields = [];
+  let fetchError = null;
+  try {
+    const r = await fetch(jobUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+    });
+    html = await r.text();
+    log.push({ step: "fetched_html", status: r.status, length: html.length });
+    fields = extractFormFields(html);
+    log.push({ step: "fields_detected", count: fields.length, sample: fields.slice(0, 8).map((f) => ({ name: f.name, type: f.type, label: (f.label || "").slice(0, 60) })) });
+  } catch (e) {
+    fetchError = String(e?.message || e);
+    log.push({ step: "fetch_failed", error: fetchError });
+  }
+
+  // Decide values for each field using the same decideValue() the
+  // headless path uses. For free-form textarea questions where the
+  // decision has no profile value, ask the LLM.
+  const llmAnswers = [];
+  for (const f of fields) {
+    if (f.kind === "input" && (f.type === "hidden" || f.type === "submit")) continue;
+    const decision = decideValue(f, profile, app, log, env);
+    if (decision.value != null) {
+      formFilled[f.name || f.id || f.label] = { value: decision.value, source: decision.source };
+      log.push({ step: "field_decided", name: f.name, source: decision.source });
+      continue;
+    }
+    // Free-form textarea question — try the LLM
+    if (f.kind === "textarea") {
+      try {
+        const answer = await llmAnswerField(f, profile, app, env);
+        if (answer) {
+          formFilled[f.name || f.id || f.label] = { value: answer, source: "llm" };
+          llmAnswers.push({ field: f.name, label: f.label, answer });
+          log.push({ step: "field_llm_answered", name: f.name, length: answer.length });
+        }
+      } catch (e) {
+        log.push({ step: "field_llm_failed", name: f.name, error: String(e?.message || e) });
+      }
+    }
+  }
+
+  // Update the run + application
+  await env.JOBS_DB.prepare(`
+    UPDATE auto_submit_run
+    SET status = 'assisted',
+        finished_at = datetime('now'),
+        log = ?,
+        form_filled = ?,
+        final_url = ?,
+        screenshot_base64 = NULL,
+        confirmation_detected = 0,
+        error = NULL
+    WHERE id = ?
+  `).bind(
+    JSON.stringify(log),
+    JSON.stringify(formFilled),
+    jobUrl,
+    runId
+  ).run();
+
+  await env.JOBS_DB.prepare(`
+    UPDATE application
+    SET status = 'auto_submitted_pending',
+        submission_method = 'assisted',
+        submission_url = ?,
+        updated_at = datetime('now'),
+        fields_filled_json = ?,
+        cover_letter_sent = ?,
+        custom_answers_sent = ?,
+        external_url = ?
+    WHERE id = ?
+  `).bind(
+    jobUrl, JSON.stringify(formFilled), app.cover_letter || "",
+    JSON.stringify(llmAnswers), jobUrl, id
+  ).run();
+
+  await env.JOBS_DB.prepare(`
+    INSERT INTO application_event (application_id, kind, detail) VALUES (?, 'assisted_run_finished', ?)
+  `).bind(id, JSON.stringify({ run_id: runId, fields_count: fields.length, fields_filled: Object.keys(formFilled).length, fetch_error: fetchError })).run().catch(() => null);
+
+  return {
+    ok: true,
+    mode: "assisted",
+    run_id: runId,
+    application_id: id,
+    job_url: jobUrl,
+    message: "Browser Rendering unavailable on this CF account. Form fields were extracted from the job HTML and answers were drafted for you. Open the job URL below and paste the answers into the form.",
+    fields_detected: fields.length,
+    fields_filled: Object.keys(formFilled).length,
+    llm_answers: llmAnswers,
+    form_filled: formFilled,
+    log,
+  };
+}
+
+// Ask the LLM to answer a single free-form textarea question.
+async function llmAnswerField(field, profile, app, env) {
+  // Use Workers AI (free) if bound, else Cloudflare AI Gateway,
+  // else no LLM → return null. The caller falls back to the
+  // prepared cover letter / canonical answers.
+  const gateway = env.CF_AI_GATEWAY_URL;
+  const apiKey  = env.CF_AI_GATEWAY_KEY || env.CLOUDFLARE_API_TOKEN;
+  const model   = env.CF_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+
+  if (!gateway) {
+    // No LLM available — return the prepared cover letter as a generic fallback.
+    if (app.cover_letter) return app.cover_letter.slice(0, 800);
+    if (profile.resume_text) return profile.resume_text.slice(0, 800);
+    return "";
+  }
+
+  const prompt = `You are helping a job applicant fill out a single form question on a company's website.
+
+JOB: ${app.job_title} at ${app.company_name}
+JOB DESCRIPTION (excerpt): ${(app.job_description || "").slice(0, 1500)}
+
+APPLICANT NAME: ${profile.full_name || profile.first_name || ""}
+APPLICANT BACKGROUND: ${(profile.resume_text || profile.summary || "").slice(0, 1500)}
+
+QUESTION: "${(field.label || field.name || "").trim()}"
+
+Write a 2-4 sentence answer that is specific, honest, and reflects the applicant's background. Do NOT make up experience they don't have. Return ONLY the answer text, no labels or quotes.`;
+
+  try {
+    const r = await fetch(`${gateway.replace(/\/$/, "")}/${model}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiKey ? { "Authorization": `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: "You write concise, specific application answers. No fluff." },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 400,
+      }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    // CF Workers AI / OpenAI-compatible shape: result.response OR choices[0].message.content
+    const text = j?.result?.response || j?.choices?.[0]?.message?.content || "";
+    return String(text).trim().slice(0, 2000);
+  } catch {
+    return null;
+  }
+}
+
 async function runAutomation(env, app, profile, runId) {
   const jobUrl = app.job_url || app.company_careers_url;
   const log = [];
