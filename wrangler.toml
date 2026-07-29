@@ -26,4 +26,3 @@ FROM_EMAIL   = "mehyar.jobs <noreply@mehyar.us>"
 # in the deploy dance; left as a placeholder here so the var name is in
 # the wrangler.toml [vars] allowlist — PATCH-only path would otherwise
 # get wiped on the next deploy per the skill gotcha 2.)
-

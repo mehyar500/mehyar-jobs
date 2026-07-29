@@ -39,6 +39,15 @@ export default function Today() {
     refetchInterval: 60_000,
   });
 
+  // Pending assisted-apply queue — the user's "today's to-do" list.
+  // Same role as a daily-digest email: shows which auto-applies still
+  // need to be submitted manually on the company site.
+  const queueQ = useQuery({
+    queryKey: ["assisted-queue"],
+    queryFn: () => api.assistedQueue(),
+    refetchInterval: 30_000,
+  });
+
   const filterFn = (j: any) => minFit === 0 || (j.score != null && j.score >= minFit);
 
   const items = useMemo<any[]>(() => {
@@ -107,7 +116,99 @@ export default function Today() {
           <Stat label="Last scrape" value={lastRun?.finished_at ? relativeTime(lastRun.finished_at) : "—"} sub={lastRun?.new_jobs != null ? `+${lastRun.new_jobs} new` : ""} />
         </div>
 
-        {lastRun && (
+      </div>
+
+      {/* 🤖 Assisted-apply queue — replaces the daily-digest email */}
+      {queueQ.data?.ok && queueQ.data?.count > 0 ? (
+        <div className="card" style={{ borderColor: "var(--accent)" }}>
+          <div className="row between wrap" style={{ gap: 8 }}>
+            <div>
+              <h2 className="h2" style={{ margin: 0 }}>🤖 {queueQ.data.pending_count} assisted applies waiting for you</h2>
+              <p className="sm muted" style={{ marginTop: 4 }}>
+                These were drafted automatically (CF Browser Rendering is not enabled on this account, so the 🤖 button prepares the answers instead of submitting for you). Open each link, paste the prepared values, click submit on the company site.
+              </p>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => queueQ.refetch()} disabled={queueQ.isFetching}>
+              {queueQ.isFetching ? "loading…" : "↻ refresh"}
+            </button>
+          </div>
+
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            {queueQ.data.items.map((q: any) => (
+              <div
+                key={q.app_id}
+                className="card card-tight"
+                style={{ padding: 12, borderColor: q.status === "auto_submitted_pending" ? "var(--accent)" : "var(--border)" }}
+              >
+                <div className="row between wrap" style={{ gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <strong>{(q.job.title || "").slice(0, 60)}</strong>
+                      <span className="badge" style={{ background: "var(--accent)", color: "#fff", fontSize: 10 }}>fit {q.fit.score ?? "—"}</span>
+                      <span className="xs muted">{q.company.name}</span>
+                    </div>
+                    <div className="xs muted" style={{ marginTop: 4 }}>
+                      app #{q.app_id} · {q.job.location || "—"} · {q.job.remote_policy || "—"} ·{" "}
+                      {q.status === "auto_submitted_pending" ? "🤖 awaits your click" :
+                       q.status === "submitted" ? "✅ submitted — awaiting company reply" :
+                       q.status === "confirmed" ? "🎉 confirmed by company" :
+                       q.status}
+                      {q.tracking_email ? ` · reply to ${q.tracking_email}` : ""}
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                    <a className="btn btn-primary btn-sm" href={q.job.url} target="_blank" rel="noreferrer">
+                      ↗ Open & submit
+                    </a>
+                  </div>
+                </div>
+
+                {/* Show prepared form values + LLM answers inline */}
+                {Object.keys(q.form_filled || {}).length > 0 || (q.custom_answers || []).length > 0 ? (
+                  <details style={{ marginTop: 8 }}>
+                    <summary className="sm">
+                      Prepared values ({Object.keys(q.form_filled || {}).length} form + {(q.custom_answers || []).length} LLM)
+                    </summary>
+                    <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                      {Object.entries(q.form_filled || {}).slice(0, 8).map(([k, v]: any) => (
+                        <div key={k} className="xs" style={{ display: "flex", gap: 6 }}>
+                          <code style={{ minWidth: 100, color: "var(--accent)" }}>{k}</code>
+                          <span> = <strong>{String(v?.value ?? "").slice(0, 200)}</strong> <span className="muted">[{v?.source || ""}]</span></span>
+                        </div>
+                      ))}
+                      {(q.custom_answers || []).slice(0, 5).map((a: any, i: number) => (
+                        <div key={i} className="xs" style={{ borderTop: "1px solid var(--border)", paddingTop: 6, marginTop: 6 }}>
+                          <div className="muted mono">{a.field || a.label || `Answer ${i+1}`}</div>
+                          <div style={{ marginTop: 2, whiteSpace: "pre-wrap" }}>{String(a.answer || "").slice(0, 500)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+
+                {/* Email status — truthful */}
+                {q.email.attempted ? (
+                  <div className="xs" style={{ marginTop: 6 }}>
+                    email: {q.email.last_status === "sent" ? "✅ sent" :
+                            q.email.last_status === "failed" ? `❌ failed (${q.email.last_error || "no provider"})` :
+                            q.email.last_status}
+                    {q.email.last_status === "failed" ? (
+                      <span className="muted"> — Resend API key isn't configured; this in-app queue is your notification.</span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="xs muted" style={{ marginTop: 6 }}>
+                    email: not attempted (this in-app queue IS your notification)
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Old header end */}
+      {lastRun && (
           <div className="row wrap sm muted" style={{ marginTop: 10, gap: 10 }}>
             <span className="tag tag-zinc xs">{lastRun.companies_succeeded}/{lastRun.companies_attempted} companies ok</span>
             <span className="tag tag-zinc xs">{lastRun.jobs_found} found</span>
@@ -117,8 +218,7 @@ export default function Today() {
             <span className="grow" />
             <span className="xs muted">refreshed {updatedAt ? relativeTime(updatedAt) : "—"}</span>
           </div>
-        )}
-      </div>
+      )}
 
       {/* View toggle + window */}
       <div className="card card-tight">
