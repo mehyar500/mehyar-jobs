@@ -236,6 +236,7 @@ def deploy_wrangler(branch="main", dry_run=False):
     env["CLOUDFLARE_API_KEY"] = KEY
     env["CLOUDFLARE_ACCOUNT_ID"] = ACCT
     env.pop("CF_API_TOKEN", None)  # API tokens don't work with wrangler legacy auth
+    env.pop("CLOUDFLARE_API_TOKEN", None)
     # On Windows the bash `npx` shell wrapper sometimes fails to be launched
     # by Python subprocess (no Win32 program association); use npx.cmd directly.
     npx_bin = "npx.cmd" if sys.platform == "win32" else "npx"

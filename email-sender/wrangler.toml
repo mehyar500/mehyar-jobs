@@ -2,15 +2,25 @@ name = "mehyar-jobs-email-sender"
 main = "src/index.js"
 compatibility_date = "2026-07-01"
 
-# Outbound email — Workers supports [[send_email]] bindings directly
-# (Pages projects do not). Used for the daily digest + per-apply
-# notifications.
-[[send_email]]
-name = "SEND_EMAIL"
-allowed_destination_addresses = ["mrswelim@gmail.com", "mehyar500@gmail.com"]
+# This Worker is the outbound email bridge for mehyar-jobs Pages.
+# Pages doesn't support `send_email` bindings, so we POST to this
+# Worker's HTTP endpoint and let it use the platform binding.
 
-# Default from address (overridable per-send)
+# Outbound mail is sent FROM noreply@mehyar.us (configured in CF
+# dashboard: Email Routing → Destination addresses verified).
+# We restrict allowed recipients to a single notify address so this
+# worker can't be abused as an open relay.
+[[send_email]]
+name = "email"
+allowed_destination_addresses = ["mrswelim@gmail.com", "noreply@mehyar.us"]
+
 [vars]
+# Where the mechyar-jobs Pages site will POST to.
+# After deploy, wrangler prints the worker URL; update Pages' env
+# var or wire it into _shared/email.js as the SEND_URL.
+NOTIFY_EMAIL = "mrswelim@gmail.com"
 FROM_EMAIL = "mehyar.jobs <noreply@mehyar.us>"
-APP_NAME = "mehyar-jobs"
-APP_HOST = "jobs.mehyar.us"
+# Shared HMAC token so only our Pages site can invoke this sender.
+# Real value is set via `wrangler secret put` (or PATCHed in CF dashboard).
+# Pages passes the same value as `Authorization: Bearer <token>`.
+# SENDER_TOKEN = "<set via wrangler secret put>"

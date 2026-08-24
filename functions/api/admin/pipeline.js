@@ -24,9 +24,11 @@ export async function onRequestGet({ request, env }) {
     db.prepare("SELECT id, started_at, finished_at, companies_attempted, companies_succeeded, companies_failed, jobs_found, new_jobs, removed_jobs, duration_ms FROM scrape_run ORDER BY id DESC LIMIT 5").all(),
     db.prepare("SELECT id, status, started_at, finished_at, error FROM auto_submit_run ORDER BY id DESC LIMIT 5").all(),
     db.prepare("SELECT id, received_at, from_addr, subject, matched_application_id FROM email_inbound ORDER BY id DESC LIMIT 5").all(),
+    db.prepare("SELECT COUNT(*) AS contract_jobs FROM job WHERE is_active = 1 AND LOWER(COALESCE(employment_type, '')) IN ('contract', 'contractor', 'freelance', 'temporary')").first(),
+    db.prepare("SELECT scan_day, cursor, completed_at, last_error, updated_at FROM scan_scheduler_state WHERE name = 'daily-company-scan'").first().catch(() => null),
   ]);
 
-  const [jobs, companies, scores, applications, queue, today, scrapeRuns, autoRuns, inbound] = all;
+  const [jobs, companies, scores, applications, queue, today, scrapeRuns, autoRuns, inbound, engagement, scheduler] = all;
   return json({
     ok: true,
     generated_at: new Date().toISOString(),
@@ -39,5 +41,7 @@ export async function onRequestGet({ request, env }) {
     scrape_runs: scrapeRuns?.results || [],
     auto_submit_runs: autoRuns?.results || [],
     inbound_email: inbound?.results || [],
+    engagement: engagement || { contract_jobs: 0 },
+    scheduler: scheduler || null,
   }, 200, request, env);
 }

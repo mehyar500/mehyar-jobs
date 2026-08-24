@@ -50,16 +50,32 @@ async function fetchJson(url, { timeoutMs = 15000, method = "GET", headers = {},
   }
 }
 
-function normLoc(s) {
+export function normLoc(s) {
   if (!s) return { location: null, remote_policy: "unknown" };
   const t = s.trim();
   const l = t.toLowerCase();
-  if (l === "remote" || l === "anywhere" || l.startsWith("remote -") || l.startsWith("remote,")) {
+  if (l === "anywhere" || /\b(remote|work from anywhere|distributed)\b/.test(l)) {
     return { location: t, remote_policy: "remote" };
   }
   if (l.includes("hybrid")) return { location: t, remote_policy: "hybrid" };
   if (l.includes("on-site") || l.includes("onsite")) return { location: t, remote_policy: "onsite" };
   return { location: t, remote_policy: "unknown" };
+}
+
+export function inferEmploymentType(value, title = "", description = "") {
+  const explicit = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (/^(contract|contractor|freelance|1099|c2c)$/.test(explicit)) return "contract";
+  if (/^(temporary|temp|fixed_term)$/.test(explicit)) return "temporary";
+  if (/^(part_time|parttime)$/.test(explicit)) return "part_time";
+  if (/^(intern|internship)$/.test(explicit)) return "intern";
+  if (/^(full_time|fulltime|regular|permanent)$/.test(explicit)) return "full_time";
+
+  const heading = String(title || "");
+  if (/\b(contract(?:or)?|freelance|1099|c2c)\b/i.test(heading)) return "contract";
+  if (/\b(temporary|temp|fixed[- ]term)\b/i.test(heading)) return "temporary";
+  const text = String(description || "").slice(0, 5000);
+  if (/\b(employment type|engagement|position type)\s*[:\-]\s*(contract(?:or)?|freelance|1099|c2c)\b/i.test(text) || /\b(1099|corp[- ]to[- ]corp|c2c)\s+(contract|engagement|role)\b/i.test(text)) return "contract";
+  return explicit || null;
 }
 
 // ── Greenhouse ────────────────────────────────────────────────────
@@ -82,7 +98,7 @@ export async function scrapeGreenhouse(handle, ctx) {
         team: offices.join(", ") || null,
         location: loc.location,
         remote_policy: loc.remote_policy,
-        employment_type: null,
+        employment_type: inferEmploymentType(null, j.title, j.content ? stripHtml(j.content) : ""),
         posted_at: j.updated_at || null,
         description: null,
         description_text: j.content ? stripHtml(j.content) : null,
@@ -111,7 +127,7 @@ export async function scrapeLever(handle, ctx) {
         team: j.categories?.team || null,
         location: loc.location,
         remote_policy: loc.remote_policy,
-        employment_type: j.categories?.commitment || null,
+        employment_type: inferEmploymentType(j.categories?.commitment, j.text, j.description ? stripHtml(j.description) : ""),
         posted_at: j.createdAt ? new Date(j.createdAt).toISOString() : null,
         description: null,
         description_text: j.description ? stripHtml(j.description) : null,
@@ -142,7 +158,7 @@ export async function scrapeAshby(handle, ctx) {
         team: j.team || null,
         location: j.location,
         remote_policy: isRemote ? "remote" : loc.remote_policy,
-        employment_type: j.employmentType || null,
+        employment_type: inferEmploymentType(j.employmentType, j.title, j.descriptionHtml ? stripHtml(j.descriptionHtml) : ""),
         posted_at: j.publishedAt || null,
         description: null,
         description_text: j.descriptionHtml ? stripHtml(j.descriptionHtml) : null,
@@ -174,7 +190,7 @@ export async function scrapeSmartRecruiters(handle, ctx) {
           team: j.team?.label || null,
           location: j.location?.fullLocation || loc.location,
           remote_policy: loc.remote_policy,
-          employment_type: j.typeOfEmployment?.label || null,
+          employment_type: inferEmploymentType(j.typeOfEmployment?.label, j.name, j.jobDescription ? stripHtml(j.jobDescription) : ""),
           posted_at: j.releaseDate || null,
           description: null,
           description_text: j.jobDescription ? stripHtml(j.jobDescription) : null,
@@ -254,7 +270,7 @@ export async function scrapeWorkday(careersUrl, handle, ctx) {
           team: null,
           location: loc.location,
           remote_policy: loc.remote_policy,
-          employment_type: j.timeType || null,
+          employment_type: inferEmploymentType(j.timeType, j.title, ""),
           posted_at: j.startDate || j.postedOn || null,
           description: null,
           description_text: null,

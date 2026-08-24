@@ -76,8 +76,7 @@ export default function Today() {
   const triggerRescan = async () => {
     try {
       toast.push({ kind: "info", title: "Rescanning…", message: "Daily scrape + score in progress." });
-      await api.triggerScrape();
-      try { await api.triggerScore(); } catch {}
+      await api.triggerFullScrape();
       qc.invalidateQueries({ queryKey: ["today"] });
       qc.invalidateQueries({ queryKey: ["public-stats"] });
       toast.push({ kind: "success", title: "Rescan complete", message: "Fresh jobs loaded." });

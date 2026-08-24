@@ -85,6 +85,53 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<any> {
   return body;
 }
 
+export async function runFullScrape(onProgress?: (progress: any) => void) {
+  let cursor = 0;
+  let batches = 0;
+  const total = { attempted: 0, succeeded: 0, failed: 0, jobs_found: 0, new_jobs: 0, removed_jobs: 0, contract_jobs: 0 };
+  while (batches < 100) {
+    const batch = await apiFetch("/api/admin/cron/scrape", {
+      method: "POST",
+      body: JSON.stringify({ cursor, limit: 3, include_contracts: batches === 0 }),
+    });
+    batches += 1;
+    total.attempted += Number(batch.attempted || 0);
+    total.succeeded += Number(batch.succeeded || 0);
+    total.failed += Number(batch.failed || 0);
+    total.jobs_found += Number(batch.jobs_found || 0);
+    total.new_jobs += Number(batch.new_jobs || 0);
+    total.removed_jobs += Number(batch.removed_jobs || 0);
+    if (batch.contracts) total.contract_jobs = Number(batch.contracts.found || 0);
+    onProgress?.({ ...total, batches, done: !!batch.done });
+    if (batch.done) return { ok: true, ...total, batches };
+    if (!batch.next_cursor || Number(batch.next_cursor) === cursor) throw new Error("scan cursor did not advance");
+    cursor = Number(batch.next_cursor);
+  }
+  throw new Error("scan exceeded the 100-batch safety limit");
+}
+
+export async function runFullScore(onProgress?: (progress: any) => void) {
+  let cursor = 0;
+  let batches = 0;
+  const total = { scored: 0, hard_no: 0, top: 0, alerts_created: 0 };
+  while (batches < 100) {
+    const batch = await apiFetch("/api/admin/cron/score", {
+      method: "POST",
+      body: JSON.stringify({ cursor, limit: 300 }),
+    });
+    batches += 1;
+    total.scored += Number(batch.scored || 0);
+    total.hard_no += Number(batch.hard_no || 0);
+    total.top += Number(batch.top || 0);
+    total.alerts_created += Number(batch.alerts_created || 0);
+    onProgress?.({ ...total, batches, done: !!batch.done });
+    if (batch.done) return { ok: true, ...total, batches };
+    if (!batch.next_cursor || Number(batch.next_cursor) === cursor) throw new Error("score cursor did not advance");
+    cursor = Number(batch.next_cursor);
+  }
+  throw new Error("scoring exceeded the 100-batch safety limit");
+}
+
 export const api = {
   // Public
   publicHealth: () => fetch(API_BASE + "/api/public/health").then((r) => r.json()),
@@ -95,8 +142,10 @@ export const api = {
   saveProfile:  (p: any) => apiFetch("/api/admin/profile", { method: "POST", body: JSON.stringify(p) }),
   companies:    (q: any = {}) => apiFetch("/api/admin/companies?" + new URLSearchParams(q).toString()),
   jobs:         (q: any = {}) => apiFetch("/api/admin/jobs?" + new URLSearchParams(q).toString()),
-  triggerScrape:() => apiFetch("/api/admin/cron/scrape", { method: "POST" }),
+  triggerScrape:(body: any = {}) => apiFetch("/api/admin/cron/scrape", { method: "POST", body: JSON.stringify(body) }),
+  triggerFullScrape: (onProgress?: (progress: any) => void) => runFullScrape(onProgress),
   triggerScore: () => apiFetch("/api/admin/cron/score",  { method: "POST" }),
+  triggerFullScore: (onProgress?: (progress: any) => void) => runFullScore(onProgress),
   pipeline:     () => apiFetch("/api/admin/pipeline"),
   today:         (days = 1) => apiFetch(`/api/admin/today?days=${days}`),
   markJob:       (job_id: number, body: { action: "applied" | "applied_external" | "skipped"; url?: string; note?: string }) =>

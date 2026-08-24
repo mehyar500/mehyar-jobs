@@ -17,6 +17,7 @@ export default function About() {
           <li><strong>Forbes Global 2000</strong> · <a href="https://www.forbes.com/global2000/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>forbes.com/global2000</a></li>
           <li><strong>S&amp;P 500</strong> · <a href="https://en.wikipedia.org/wiki/List_of_S%26P_500_companies" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>Wikipedia</a></li>
           <li><strong>Inc 5000</strong> · <a href="https://www.inc.com/inc5000" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>inc.com/inc5000</a></li>
+          <li><strong>Himalayas contract feed</strong> · <a href="https://himalayas.app/jobs/api" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>himalayas.app</a> · explicit Contractor roles, attributed to the original listing</li>
         </ul>
       </div>
 
@@ -65,9 +66,9 @@ export default function About() {
       <div className="card">
         <h2 className="h2">📅 Daily cycle</h2>
         <ol className="sm muted" style={{ paddingLeft: 18, lineHeight: 1.7 }}>
-          <li>Cron triggers <code className="mono">/api/admin/cron/scrape</code></li>
-          <li>Each company's careers URL is fetched; new jobs INSERTed, removed jobs marked inactive</li>
-          <li><code className="mono">/api/admin/cron/score</code> runs immediately after — every active job re-scored against the latest profile</li>
+          <li>A dedicated Cloudflare Worker advances a resumable scan batch every 15 minutes until the daily directory pass is complete</li>
+          <li>The first batch refreshes explicit remote Contractor roles from Himalayas and synchronizes the full source directory into D1</li>
+          <li>Each company's careers URL is fetched; jobs are upserted in D1 batches, removed jobs are marked inactive, and that company's active jobs are re-scored</li>
           <li>Top-fit (≥70) and high-novelty (new in last 24h) jobs surface as alerts in /dash</li>
           <li>If a company board returns 4xx / 5xx three days running, its <code className="mono">scrape_status</code> flips to <code className="mono">broken</code> so you can intervene</li>
         </ol>

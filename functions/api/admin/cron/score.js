@@ -1,10 +1,9 @@
-// POST /api/admin/cron/score
+// POST /api/admin/cron/score { cursor, limit }
 //
-// (Re-)scores every active job against the current profile. Intended to
-// run right after a profile edit; also called by the daily scrape cron.
-// Cheap (~150µs per job in D1, ~few seconds for 5K jobs).
+// Scores a bounded job batch. Callers continue with next_cursor until
+// done=true, avoiding a multi-thousand-write Pages request.
 
-import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../_shared/adminAuth.js";
+import { requireAdmin, json, onRequestOptions } from "../../../_shared/adminAuth.js";
 import { ensureSchema } from "../../../_shared/db.js";
 import { scoreJob, loadProfile } from "../../../_shared/fit.js";
 
@@ -16,78 +15,76 @@ export async function onRequestPost({ request, env }) {
   if (!env?.JOBS_DB) return json({ ok: false, error: "no_db" }, 500, request, env);
 
   await ensureSchema(env);
+  const body = await request.json().catch(() => ({}));
+  const cursor = Math.max(0, Number(body.cursor || 0));
+  const limit = Math.max(50, Math.min(500, Number(body.limit || 300)));
   const db = env.JOBS_DB;
-
-  const profileRow = await db.prepare("SELECT * FROM profile WHERE id = 1").first();
-  const profile = await loadProfile(profileRow);
-
-  // Pull every active job joined with its company industry in chunks.
+  const profile = await loadProfile(await db.prepare("SELECT * FROM profile WHERE id = 1").first());
   const rows = await db.prepare(`
-    SELECT j.id, j.title, j.description_text, j.location, j.remote_policy, j.salary_min, j.salary_max,
+    SELECT j.id, j.title, j.description_text, j.location, j.remote_policy, j.salary_min, j.salary_max, j.posted_at,
            c.industry
     FROM job j JOIN company c ON c.id = j.company_id
-    WHERE j.is_active = 1
-  `).all().catch(() => ({ results: [] }));
+    WHERE j.is_active = 1 AND j.id > ?
+    ORDER BY j.id ASC
+    LIMIT ?
+  `).bind(cursor, limit).all();
 
-  const stmt = db.prepare(`
-    INSERT INTO job_fit (job_id, score, reasons, hard_no, hard_no_reason, profile_version)
-    VALUES (?, ?, ?, ?, ?, 1)
-    ON CONFLICT(job_id) DO UPDATE SET
-      score = excluded.score,
-      reasons = excluded.reasons,
-      hard_no = excluded.hard_no,
-      hard_no_reason = excluded.hard_no_reason,
-      scored_at = datetime('now'),
-      profile_version = 1
-  `);
-
-  let scored = 0, hardNo = 0, top = 0;
-  for (const r of (rows.results || [])) {
-    const out = scoreJob({
-      title: r.title,
-      description_text: r.description_text,
-      location: r.location,
-      remote_policy: r.remote_policy,
-      salary_min: r.salary_min,
-      salary_max: r.salary_max,
-    }, profile, r.industry);
-
-    await stmt.bind(
-      r.id, out.score, JSON.stringify(out.reasons), out.hard_no ? 1 : 0, out.hard_no_reason
-    ).run().catch(() => {});
-
+  let scored = 0;
+  let hardNo = 0;
+  let top = 0;
+  const statements = [];
+  for (const row of rows.results || []) {
+    const out = scoreJob(row, profile, row.industry);
+    statements.push(db.prepare(`
+      INSERT INTO job_fit (job_id, score, reasons, hard_no, hard_no_reason, profile_version)
+      VALUES (?, ?, ?, ?, ?, 1)
+      ON CONFLICT(job_id) DO UPDATE SET
+        score = excluded.score,
+        reasons = excluded.reasons,
+        hard_no = excluded.hard_no,
+        hard_no_reason = excluded.hard_no_reason,
+        scored_at = datetime('now'),
+        profile_version = 1
+    `).bind(row.id, out.score, JSON.stringify(out.reasons), out.hard_no ? 1 : 0, out.hard_no_reason));
     scored += 1;
     if (out.hard_no) hardNo += 1;
-    if (out.score >= 70) top += 1;
+    if (out.score >= 70 && !out.hard_no) top += 1;
   }
+  for (let index = 0; index < statements.length; index += 50) await db.batch(statements.slice(index, index + 50));
 
-  // Surface new alerts for any newly-discovered 70+ matches not previously alerted.
-  const topJobs = await db.prepare(`
-    SELECT j.id, j.title, c.name AS company, j.url, jf.score, jf.hard_no
-    FROM job j
-    JOIN company c ON c.id = j.company_id
-    JOIN job_fit jf ON jf.job_id = j.id
-    WHERE jf.score >= 70 AND jf.hard_no = 0
-    ORDER BY jf.score DESC LIMIT 25
-  `).all().catch(() => ({ results: [] }));
-
-  let alertsCreated = 0;
-  for (const j of (topJobs.results || [])) {
-    const exists = await db.prepare("SELECT 1 AS x FROM alert WHERE kind = 'high_fit' AND job_id = ?").bind(j.id).first().catch(() => null);
-    if (exists) continue;
-    await db.prepare("INSERT INTO alert (kind, job_id, message) VALUES ('high_fit', ?, ?)")
-      .bind(j.id, `${j.company} — ${j.title} (fit ${j.score})`).run().catch(() => {});
-    alertsCreated += 1;
-  }
-
+  const last = (rows.results || []).at(-1)?.id || cursor;
+  const remaining = await db.prepare("SELECT id FROM job WHERE is_active = 1 AND id > ? ORDER BY id ASC LIMIT 1").bind(last).first();
+  const done = !remaining;
+  const alertsCreated = done ? await createTopAlerts(db) : 0;
   return json({
     ok: true,
-    scored, hard_no: hardNo, top: top,
+    scored,
+    hard_no: hardNo,
+    top,
+    cursor: last,
+    next_cursor: done ? null : last,
+    done,
     alerts_created: alertsCreated,
     profile_version: 1,
   }, 200, request, env);
 }
 
-export async function onRequestGet({ request, env }) {
-  return onRequestPost({ request, env });
+export async function onRequestGet(context) {
+  return onRequestPost(context);
+}
+
+async function createTopAlerts(db) {
+  const jobs = await db.prepare(`
+    SELECT j.id, j.title, c.name AS company, jf.score
+    FROM job j
+    JOIN company c ON c.id = j.company_id
+    JOIN job_fit jf ON jf.job_id = j.id
+    WHERE jf.score >= 70 AND jf.hard_no = 0
+      AND NOT EXISTS (SELECT 1 FROM alert a WHERE a.kind = 'high_fit' AND a.job_id = j.id)
+    ORDER BY jf.score DESC LIMIT 25
+  `).all();
+  const statements = (jobs.results || []).map((job) => db.prepare("INSERT INTO alert (kind, job_id, message) VALUES ('high_fit', ?, ?)")
+    .bind(job.id, `${job.company} — ${job.title} (fit ${job.score})`));
+  if (statements.length) await db.batch(statements);
+  return statements.length;
 }

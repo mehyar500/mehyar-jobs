@@ -44,6 +44,7 @@
 import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../../_shared/adminAuth.js";
 import { ensureSchema } from "../../../../_shared/db.js";
 import { loadProfile } from "../../../../_shared/fit.js";
+import { sendEmail, renderApplicationEmail } from "../../../../_shared/email.js";
 
 export { onRequestOptions as onRequest };
 
@@ -296,20 +297,78 @@ async function runAssisted(env, app, profile, runId, id) {
     INSERT INTO application_event (application_id, kind, detail) VALUES (?, 'assisted_run_finished', ?)
   `).bind(id, JSON.stringify({ run_id: runId, fields_count: fields.length, fields_filled: Object.keys(formFilled).length, fetch_error: fetchError })).run().catch(() => null);
 
+  // Persist the prepared answers onto the application row so the
+  // /assisted-queue endpoint + UI can show them later.
+  await env.JOBS_DB.prepare(`
+    UPDATE application
+    SET fields_filled_json = ?,
+        custom_answers_sent = ?,
+        application_method = 'assisted',
+        submission_url = COALESCE(?, submission_url),
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(
+    JSON.stringify(formFilled),
+    JSON.stringify(llmAnswers),
+    jobUrl,
+    id
+  ).run().catch((e) => console.log("auto-submit: persist form_filled failed", e?.message));
+
+  // ── Send email notification ──
+  // ALWAYS try — even on incomplete assisted runs — so the user
+  // always gets a "🤖 Assisted apply ready" digest they can act on.
+  let email_status = { attempted: false };
+  try {
+    const notifTo = env.NOTIFY_EMAIL || "mrswelim@gmail.com";
+    const { subject, text, html } = renderApplicationEmail({
+      application: { id, submission_method: "assisted", submission_url: jobUrl, submitted_at: new Date().toISOString() },
+      job: { title: app.job_title || "", url: jobUrl },
+      company: { name: app.company_name || "" },
+      profile: { full_name: profile.full_name, email: profile.email },
+    });
+    const enrichedHtml = `${html}\n\n<hr><h3>🤖 Assisted apply (no headless browser — CF Browser Rendering not enabled on this account)</h3>
+<p><strong>${fields.length}</strong> form field(s) detected · <strong>${Object.keys(formFilled).length}</strong> pre-filled value(s) ready · <strong>${llmAnswers.length}</strong> LLM-drafted answer(s) drafted.</p>
+<p><a href="${jobUrl}">${jobUrl}</a></p>
+<p>Open the link above, paste the prepared values, and click submit on the company's site. The application will be marked as <code>confirmed</code> automatically when the company replies to <code>app-${id}@jobs.mehyar.us</code>.</p>
+${fields.length > 0 ? `<h4>Prepared values (${Object.keys(formFilled).length})</h4><ul>${Object.entries(formFilled).map(([k, v]) => `<li><code>${escapeHtml(k)}</code> = <strong>${escapeHtml(String(v.value ?? '').slice(0, 200))}</strong> <em style="color:#9ca3af">[${escapeHtml(v.source || '')}]</em></li>`).join('')}</ul>` : '<p style="color:#9ca3af"><em>This page rendered its form via JavaScript so we couldn\'t pre-detect the fields. Open the link above to find the form fields and submit with the prepared cover letter.</em></p>'}
+${llmAnswers.length > 0 ? `<h4>LLM-drafted answers (${llmAnswers.length})</h4>${llmAnswers.map((a, i) => `<div style="margin:8px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px"><div style="color:#6b7280;font-size:11px;font-family:monospace">${escapeHtml(a.field || a.label || 'Answer ' + (i+1))}</div><div>${escapeHtml(String(a.answer || '').slice(0, 600))}</div></div>`).join('')}</details>` : ``}`;
+    const r = await sendEmail(env, {
+      to: notifTo,
+      subject: subject + " (assisted — paste answers)",
+      text,
+      html: enrichedHtml,
+    });
+    email_status = { attempted: true, ok: r.ok, provider: r.provider, error: r.error, id: r.id };
+    await env.JOBS_DB.prepare(
+      `UPDATE application SET email_sent_at = datetime('now'), email_id = ? WHERE id = ?`
+    ).bind(r.id || null, id).run().catch(() => null);
+    await env.JOBS_DB.prepare(
+      `INSERT INTO application_event (application_id, kind, detail) VALUES (?, ?, ?)`
+    ).bind(id, r.ok ? "email_sent" : "email_failed", JSON.stringify(email_status)).run().catch(() => null);
+  } catch (e) {
+    email_status = { attempted: true, ok: false, error: e?.message || String(e) };
+    await env.JOBS_DB.prepare(
+      `INSERT INTO application_event (application_id, kind, detail) VALUES (?, 'email_failed', ?)`
+    ).bind(id, JSON.stringify(email_status)).run().catch(() => null);
+  }
+
   return {
     ok: true,
     mode: "assisted",
     run_id: runId,
     application_id: id,
     job_url: jobUrl,
-    message: "Browser Rendering unavailable on this CF account. Form fields were extracted from the job HTML and answers were drafted for you. Open the job URL below and paste the answers into the form.",
+    message: `Browser Rendering unavailable. ${fields.length} field(s) detected, ${Object.keys(formFilled).length} pre-filled, ${llmAnswers.length} LLM answer(s) drafted. Email ${email_status.ok ? "sent to " + (env.NOTIFY_EMAIL || "mrswelim@gmail.com") : "FAILED (" + (email_status.error || "no provider") + ") — check activity feed"}`,
     fields_detected: fields.length,
     fields_filled: Object.keys(formFilled).length,
     llm_answers: llmAnswers,
     form_filled: formFilled,
+    email_status,
     log,
   };
 }
+
+function escapeHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
 // Ask the LLM to answer a single free-form textarea question.
 async function llmAnswerField(field, profile, app, env) {

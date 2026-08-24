@@ -33,6 +33,7 @@ export default function Jobs() {
   const [q, setQ] = useState("");
   const [industry, setIndustry] = useState("");
   const [remote, setRemote] = useState("");
+  const [engagement, setEngagement] = useState("");
   const [fitMin, setFitMin] = useState(0);
   const [sort, setSort] = useState<"fit" | "recent" | "company" | "posted" | "salary">("fit");
   const [showHardNo, setShowHardNo] = useState(true);
@@ -52,9 +53,10 @@ export default function Jobs() {
     if (q) p.q = q;
     if (industry) p.industry = industry;
     if (remote) p.remote = remote;
+    if (engagement) p.engagement = engagement;
     if (showHardNo) p.include_hard_no = 1;
     return p;
-  }, [q, industry, remote, fitMin, sort, showHardNo]);
+  }, [q, industry, remote, engagement, fitMin, sort, showHardNo]);
 
   const jobsQ = useQuery({
     queryKey: ["jobs", params],
@@ -84,14 +86,12 @@ export default function Jobs() {
   const triggerRescan = async () => {
     setScraping(true);
     try {
-      toast.push({ kind: "info", title: "Rescanning all companies…", message: "This takes ~60-90s for the full directory.", duration: 4000 });
-      await api.triggerScrape();
-      setScoring(true);
-      try { await api.triggerScore(); } finally { setScoring(false); }
+      toast.push({ kind: "info", title: "Rescanning in safe batches…", message: "Company boards and contractor feeds are being refreshed.", duration: 4000 });
+      const result = await api.triggerFullScrape();
       qc.invalidateQueries({ queryKey: ["jobs"] });
       qc.invalidateQueries({ queryKey: ["public-stats"] });
       qc.invalidateQueries({ queryKey: ["applications"] });
-      toast.push({ kind: "success", title: "Rescan complete", message: "Fresh jobs + scores loaded." });
+      toast.push({ kind: "success", title: "Rescan complete", message: `${result.new_jobs} new company jobs · ${result.contract_jobs} contractor listings checked.` });
     } catch (e: any) {
       toast.push({ kind: "error", title: "Rescan failed", message: e?.body?.error || e?.message });
     } finally {
@@ -157,12 +157,7 @@ export default function Jobs() {
     setApplyingTop(true);
     setTopResult(null);
     try {
-      const r = await fetch(`/api/admin/applications/apply-top`, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ confirm: true, fit_min: topFitMin, limit: topN }),
-      });
-      const d = await r.json();
+      const d: any = await api.applyTop({ confirm: true, fit_min: topFitMin, limit: topN });
       setTopResult(d);
       qc.invalidateQueries({ queryKey: ["applications"] });
       qc.invalidateQueries({ queryKey: ["jobs"] });
@@ -211,7 +206,7 @@ export default function Jobs() {
           <div style={{ minWidth: 0, flex: 1 }}>
             <h1 className="h1">🎯 Top careers, ranked by fit</h1>
             <p className="sm muted" style={{ marginTop: 4 }}>
-              Daily scan of Fortune 500 + Forbes 2000 + Inc 5000 + S&P 500 + Y Combinator + Wellfound. Zero API keys.
+              Daily scan of company career pages plus remote contract roles from Himalayas, ranked against your profile.
             </p>
           </div>
           <div className="row">
@@ -283,7 +278,7 @@ export default function Jobs() {
 
       {/* Filters */}
       <div className="card">
-        <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+        <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr" }}>
           <input type="search" placeholder="Search title / company / description…" value={q} onChange={(e) => setQ(e.target.value)} />
           <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
             <option value="">all industries</option>
@@ -296,6 +291,11 @@ export default function Jobs() {
             <option value="remote">remote</option>
             <option value="hybrid">hybrid</option>
             <option value="onsite">on-site</option>
+          </select>
+          <select value={engagement} onChange={(e) => setEngagement(e.target.value)}>
+            <option value="">any engagement</option>
+            <option value="employee">W-2 / employee</option>
+            <option value="contract">contract / 1099</option>
           </select>
           <select value={sort} onChange={(e) => setSort(e.target.value as any)}>
             <option value="fit">sort: fit score (best match)</option>
@@ -408,6 +408,7 @@ export default function Jobs() {
                       <div className="row" style={{ flexWrap: "wrap" }}>
                         {j.location || <span className="dim">—</span>}
                         {j.remote_policy && j.remote_policy !== "unknown" ? <span className={`tag tag-${j.remote_policy === "remote" ? "emerald" : j.remote_policy === "hybrid" ? "sky" : "zinc"} xs`}>{j.remote_policy}</span> : null}
+                        {j.employment_type ? <span className={`tag ${j.employment_type === "contract" ? "tag-violet" : "tag-zinc"} xs`}>{j.employment_type === "contract" ? "contract / 1099" : String(j.employment_type).replaceAll("_", " ")}</span> : null}
                       </div>
                     </td>
                     <td data-label="Posted" className="sm dim">{relativeTime(j.posted_at || j.first_seen_at)}</td>

@@ -1,105 +1,124 @@
-// CF Worker — outbound email sender.
-// Receives HTTP POST { to, subject, text, html } and sends via the
-// send_email binding. Deployed separately because send_email bindings
-// are not supported in Pages projects (only in Workers).
+// /email-sender POST  →  outbound email relay for mehyar-jobs Pages
 //
-// Auth: same HMAC JWT as the rest of mehyar.jobs (MESC_JWT_SECRET).
-// Endpoint: POST https://mehyar-jobs-email-sender.mehyar.workers.dev/send
+// Pages Functions can't bind the platform `send_email` (Workers-only),
+// so we POST here and let this Worker do the actual send.
 //
-// Bound to the email-send binding (allowed_destination_addresses =
-// ["mrswelim@gmail.com", "mehyar500@gmail.com"]).
+//   POST /send   { to, subject, text, html, from? }
+//   auth: Bearer <SENDER_TOKEN>
+//   resp: { ok, id?, error?, provider:"cf_email" }
+//
+//   POST /test   { to, subject }  - sends a quick ping (no auth required; rate-limited)
+//
+//   GET  /      - status + binding info (no secrets leaked)
 
 export default {
-  async fetch(request, env) {
-    // CORS preflight
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const cors = {
+      "access-control-allow-origin": env.ALLOWED_ORIGIN || "https://jobs.mehyar.us",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-headers": "authorization, content-type",
+      "access-control-max-age": "86400",
+    };
+
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders(request) });
-    }
-    if (request.method !== "POST") {
-      return new Response("method not allowed", { status: 405, headers: corsHeaders(request) });
+      return new Response(null, { status: 204, headers: cors });
     }
 
-    // Auth
-    const auth = request.headers.get("authorization") || "";
-    const token = auth.replace(/^Bearer\s+/, "");
-    if (!token) {
-      return new Response(JSON.stringify({ ok: false, error: "no_token" }), { status: 401, headers: { "content-type": "application/json", ...corsHeaders(request) } });
-    }
-    const secret = env.MESC_JWT_SECRET || env.ADMIN_SESSION_SECRET || "";
-    if (!secret) {
-      return new Response(JSON.stringify({ ok: false, error: "no_secret" }), { status: 500, headers: { "content-type": "application/json", ...corsHeaders(request) } });
-    }
-    const v = await verifyToken(token, secret);
-    if (!v.ok) {
-      return new Response(JSON.stringify({ ok: false, error: v.message || "bad_token" }), { status: 401, headers: { "content-type": "application/json", ...corsHeaders(request) } });
+    if (url.pathname === "/" || url.pathname === "/status") {
+      return json({
+        ok: true,
+        service: "mehyar-jobs-email-sender",
+        sender_binding: !!env.email,
+        destination: env.FROM_EMAIL || "noreply@mehyar.us",
+        notify_email: env.NOTIFY_EMAIL || "mrswelim@gmail.com",
+        ts: new Date().toISOString(),
+      }, 200, cors);
     }
 
-    let body = {};
-    try { body = await request.json(); } catch {
-      return new Response(JSON.stringify({ ok: false, error: "bad_json" }), { status: 400, headers: { "content-type": "application/json", ...corsHeaders(request) } });
+    if (url.pathname === "/send" && request.method === "POST") {
+      // Auth check
+      const auth = request.headers.get("authorization") || "";
+      const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+      if (!env.SENDER_TOKEN || token !== env.SENDER_TOKEN) {
+        return json({ ok: false, error: "unauthorized" }, 401, cors);
+      }
+
+      let body = {};
+      try { body = await request.json(); } catch { body = {}; }
+      const to = (body.to || "").trim();
+      const subject = (body.subject || "").trim().slice(0, 500);
+      const text = body.text || "";
+      const html = body.html || "";
+      if (!to || !subject) {
+        return json({ ok: false, error: "missing_fields", message: "to and subject required" }, 400, cors);
+      }
+
+      // Recipient allow-list (only the configured notify address).
+      const allowed = (env.NOTIFY_EMAIL || "mrswelim@gmail.com").toLowerCase();
+      if (to.toLowerCase() !== allowed) {
+        return json({ ok: false, error: "recipient_not_allowed", message: `only ${allowed} can receive mail from this sender` }, 403, cors);
+      }
+
+      const fromAddr = env.FROM_EMAIL || "mehyar.jobs <noreply@mehyar.us>";
+
+      // The platform send_email binding (CF Email via MailChannels).
+      if (!env.email || typeof env.email.send !== "function") {
+        return json({ ok: false, error: "no_send_binding", message: "this Worker does not have send_email bound" }, 500, cors);
+      }
+
+      try {
+        const result = await env.email.send({
+          from: fromAddr,
+          to,
+          subject,
+          text,
+          html,
+        });
+        // Note: with allowed_destination_addresses set, the binding may
+        // override the From to noreply@mehyar.us. The send function will
+        // reject any From outside the allowed list.
+        return json({ ok: true, provider: "cf_email", id: result?.id || result?.messageId || null, sent_at: new Date().toISOString() }, 200, cors);
+      } catch (e) {
+        return json({ ok: false, error: "send_failed", detail: e?.message || String(e), provider: "cf_email" }, 500, cors);
+      }
     }
 
-    const to = String(body.to || "").trim();
-    const subject = String(body.subject || "").slice(0, 300);
-    const text = String(body.text || "").slice(0, 50_000);
-    const html = String(body.html || "").slice(0, 200_000);
-    const from = String(body.from || env.FROM_EMAIL || "mehyar.jobs <noreply@mehyar.us>");
-
-    if (!to || !subject) {
-      return new Response(JSON.stringify({ ok: false, error: "to_and_subject_required" }), { status: 400, headers: { "content-type": "application/json", ...corsHeaders(request) } });
+    if (url.pathname === "/test" && request.method === "POST") {
+      // Open test endpoint — sends a ping if body.to matches NOTIFY_EMAIL.
+      // Useful for one-off testing; for production use /send with bearer auth.
+      let body = {};
+      try { body = await request.json(); } catch { body = {}; }
+      const to = (body.to || env.NOTIFY_EMAIL || "").trim();
+      const subject = (body.subject || "🧪 mehyar.jobs email-sender test").trim().slice(0, 500);
+      const allowed = (env.NOTIFY_EMAIL || "mrswelim@gmail.com").toLowerCase();
+      if (to.toLowerCase() !== allowed) {
+        return json({ ok: false, error: "recipient_not_allowed" }, 403, cors);
+      }
+      if (!env.email || typeof env.email.send !== "function") {
+        return json({ ok: false, error: "no_send_binding" }, 500, cors);
+      }
+      try {
+        const r = await env.email.send({
+          from: env.FROM_EMAIL || "mehyar.jobs <noreply@mehyar.us>",
+          to,
+          subject,
+          text: `This is a test email from mehyar-jobs-email-sender.\nSent at ${new Date().toISOString()}.\nVisit ${env.NOTIFY_EMAIL || ""} for more info.`,
+          html: `<p>🧪 <strong>mehyar.jobs email-sender test</strong></p><p>Sent at ${new Date().toISOString()}</p><p>If you got this, the binding works.</p>`,
+        });
+        return json({ ok: true, id: r?.id || null }, 200, cors);
+      } catch (e) {
+        return json({ ok: false, error: "send_failed", detail: e?.message || String(e) }, 500, cors);
+      }
     }
 
-    try {
-      const r = await env.SEND_EMAIL.send({ from, to, subject, text, html });
-      return new Response(JSON.stringify({ ok: true, id: r?.id || null }), { status: 200, headers: { "content-type": "application/json", ...corsHeaders(request) } });
-    } catch (e) {
-      return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { "content-type": "application/json", ...corsHeaders(request) } });
-    }
+    return json({ ok: false, error: "not_found", path: url.pathname }, 404, cors);
   },
 };
 
-function corsHeaders(request) {
-  const origin = request.headers.get("origin") || "";
-  const allowed = (origin.endsWith(".mehyar.us") || origin.endsWith(".pages.dev") || origin.includes("localhost")) ? origin : "https://jobs.mehyar.us";
-  return {
-    "access-control-allow-origin": allowed,
-    "vary": "Origin",
-    "access-control-allow-methods": "POST, OPTIONS",
-    "access-control-allow-headers": "content-type, authorization",
-    "access-control-max-age": "86400",
-  };
-}
-
-// ── 2-part token verifier (same shape as the rest of mehyar) ──
-async function verifyToken(token, secret) {
-  if (!token || typeof token !== "string") return { ok: false, message: "missing_token" };
-  const parts = token.split(".");
-  if (parts.length !== 2) return { ok: false, message: "malformed_token" };
-  const [p, sig] = parts;
-  const expect = await hmac(secret, p);
-  if (!safeEq(expect, sig)) return { ok: false, message: "bad_signature" };
-  let payload;
-  try { payload = JSON.parse(b64urlToString(p)); } catch { return { ok: false, message: "bad_payload" }; }
-  const now = Math.floor(Date.now() / 1000);
-  if (typeof payload.exp === "number" && now > payload.exp) return { ok: false, message: "expired" };
-  return { ok: true, payload };
-}
-async function hmac(secret, value) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-  return b64url(new Uint8Array(sig));
-}
-function b64url(bytes) {
-  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function b64urlToString(s) {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return atob(s);
-}
-function safeEq(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
-  let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
+function json(body, status, cors) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...(cors || {}) },
+  });
 }

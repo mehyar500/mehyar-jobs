@@ -90,38 +90,61 @@ function annualize(amount, blob) {
 
 export function extractSalary(text) {
   if (!text || typeof text !== "string") return null;
+  // Benefit copy such as "401(k) matching" used to be misread as $401k.
+  const searchable = text.replace(/\b401\s*\(?k\)?(?:\s+(?:match|matching|plan))?/gi, " ");
+
+  // Explicit hourly single amount: "$85/hr" or "USD 110 per hour".
+  const hourly = searchable.match(/(?:USD|US\$|\$)\s*(\d{2,3}(?:\.\d{1,2})?)\s*(?:\/\s*(?:hr|hour)|per\s+hour|hourly)\b/i);
+  if (hourly) {
+    const amount = Math.round(Number(hourly[1]) * 2080);
+    if (plausibleAnnual(amount, amount)) {
+      return { min: amount, max: amount, currency: "USD", raw: hourly[0].trim(), kind: "hourly" };
+    }
+  }
 
   // Try the range form first
-  const m = text.match(SALARY_RE);
-  if (m && m.groups) {
+  const m = searchable.match(SALARY_RE);
+  if (m && m.groups && likelySalaryContext(searchable, m.index || 0, m[0])) {
     const cur = detectCurrency(m[0], "USD");
     const min = parseNumber(m.groups.n1, m.groups.s1);
     const max = parseNumber(m.groups.n2, m.groups.s2);
     if (min != null || max != null) {
-      const lo = annualize(min ?? max, text);
-      const hi = annualize(max ?? min, text);
+      const lo = annualize(min ?? max, searchable);
+      const hi = annualize(max ?? min, searchable);
+      if (!plausibleAnnual(lo, hi)) return null;
       return {
         min: Math.min(lo, hi),
         max: Math.max(lo, hi),
         currency: cur,
         raw: m[0].trim(),
-        kind: PER_HOUR.test(text) ? "hourly" : "yearly",
+        kind: PER_HOUR.test(searchable) ? "hourly" : "yearly",
       };
     }
   }
 
   // Try a single number
-  const s = text.match(SINGLE_RE);
-  if (s && s.groups) {
+  const s = searchable.match(SINGLE_RE);
+  if (s && s.groups && likelySalaryContext(searchable, s.index || 0, s[0])) {
     const cur = detectCurrency(s[0], "USD");
     const n = parseNumber(s.groups.n, s.groups.s);
     if (n != null) {
-      const v = annualize(n, text);
-      return { min: v, max: v, currency: cur, raw: s[0].trim(), kind: PER_HOUR.test(text) ? "hourly" : "yearly" };
+      const v = annualize(n, searchable);
+      if (!plausibleAnnual(v, v)) return null;
+      return { min: v, max: v, currency: cur, raw: s[0].trim(), kind: PER_HOUR.test(searchable) ? "hourly" : "yearly" };
     }
   }
 
   return null;
+}
+
+function likelySalaryContext(text, index, raw) {
+  if (/(?:USD|EUR|GBP|CAD|CHF|AUD|US\$|C\$|A\$|[$€£])/i.test(raw)) return true;
+  const context = text.slice(Math.max(0, index - 100), index + raw.length + 100);
+  return /\b(salary|compensation|base pay|pay range|hourly|annual pay|per year|per hour)\b|\/(?:yr|year|hr|hour)\b/i.test(context);
+}
+
+function plausibleAnnual(min, max) {
+  return Number.isFinite(min) && Number.isFinite(max) && min >= 15_000 && max <= 1_000_000;
 }
 
 export async function persistSalary(env, jobId, description) {

@@ -1,4 +1,4 @@
-// GET /api/admin/jobs?fit_min=&q=&industry=&remote=&company_id=&posted_within=&limit=&offset=
+// GET /api/admin/jobs?fit_min=&q=&industry=&remote=&engagement=&company_id=&posted_within=&limit=&offset=
 //
 // Returns the full job table joined with company + fit-score, sorted by
 // fit_score DESC. Auth: admin (cross-app via shared JWT).
@@ -21,6 +21,7 @@ export async function onRequestGet({ request, env }) {
   const q = (url.searchParams.get("q") || "").trim();
   const industry = (url.searchParams.get("industry") || "").trim();
   const remote = (url.searchParams.get("remote") || "").trim();
+  const engagement = (url.searchParams.get("engagement") || "").trim();
   const fitMin = Math.max(0, Math.min(100, parseInt(url.searchParams.get("fit_min") || "0", 10)));
   const companyId = url.searchParams.get("company_id") || "";
   const postedWithin = parseInt(url.searchParams.get("posted_within") || "0", 10); // days
@@ -35,6 +36,11 @@ export async function onRequestGet({ request, env }) {
   if (q) { where.push("(LOWER(j.title) LIKE ? OR LOWER(j.description_text) LIKE ? OR LOWER(c.name) LIKE ?)"); const qn = "%" + q.toLowerCase() + "%"; binds.push(qn, qn, qn); }
   if (industry) { where.push("c.industry = ?"); binds.push(industry); }
   if (remote) { where.push("j.remote_policy = ?"); binds.push(remote); }
+  if (engagement === "contract") {
+    where.push("LOWER(COALESCE(j.employment_type, '')) IN ('contract', 'contractor', 'freelance', 'temporary')");
+  } else if (engagement === "employee") {
+    where.push("LOWER(COALESCE(j.employment_type, '')) IN ('full_time', 'full-time', 'fulltime', 'regular', 'permanent')");
+  }
   if (companyId) { where.push("j.company_id = ?"); binds.push(parseInt(companyId, 10)); }
   if (postedWithin > 0) { where.push("j.posted_at IS NOT NULL AND julianday(j.posted_at) > julianday('now', ?)"); binds.push(`-${postedWithin} day`); }
   if (!includeHardNo) { where.push("(jf.hard_no IS NULL OR jf.hard_no = 0)"); }
@@ -94,6 +100,7 @@ export async function onRequestGet({ request, env }) {
     total: count?.n ?? 0,
     facets: facets.results || [],
     sort, fit_min: fitMin, q, industry, remote,
+    engagement,
     updated_at: new Date().toISOString(),
   }, 200, request, env);
 }

@@ -9,7 +9,7 @@
 //     or already submitted is skipped
 //   - dedup by day: a job that was successfully submitted in the
 //     last 24h is skipped
-//   - 50/day hard cap: if today's counter has hit 50, the request
+//   - 10/day hard cap: if today's counter has hit 10, the request
 //     fails with a clear error
 //   - run_now=true: after enqueuing, immediately runs the queue
 //     headlessly. Each app is processed in a single sequential loop
@@ -17,10 +17,13 @@
 
 import { requireAdmin, json, corsHeaders, onRequestOptions } from "../../../_shared/adminAuth.js";
 import { ensureSchema } from "../../../_shared/db.js";
+import { loadProfile } from "../../../_shared/fit.js";
+import { generateCoverLetter, generateCustomAnswers, matchCustomQuestions, extractQuestions } from "../../../_shared/coverLetter.js";
+import { extractSalary } from "../../../_shared/salary.js";
 
 export { onRequestOptions as onRequest };
 
-const DAILY_CAP = 50;
+const DAILY_CAP = 10;
 
 export async function onRequestGet({ request, env }) {
   const auth = await requireAdmin(request, env);
@@ -76,13 +79,15 @@ export async function onRequestPost({ request, env }) {
     const rows = (await env.JOBS_DB.prepare(`
       SELECT j.id AS job_id
       FROM job j
-      LEFT JOIN application a ON a.job_id = j.id
+      LEFT JOIN application submitted ON submitted.job_id = j.id AND submitted.status IN ('submitted','confirmed','auto_submitted_pending')
       LEFT JOIN job_fit jf    ON jf.job_id = j.id
       LEFT JOIN application_queue q ON q.job_id = j.id AND q.status IN ('pending','in_flight','completed')
       WHERE j.is_active = 1
-        AND a.id IS NULL
+        AND submitted.id IS NULL
         AND q.id IS NULL
+        AND j.url IS NOT NULL AND j.url != ''
         AND (jf.score IS NULL OR jf.score >= ?)
+        AND (jf.hard_no IS NULL OR jf.hard_no = 0)
       ORDER BY jf.score DESC NULLS LAST
       LIMIT ?
     `).bind(fitMin, max).all().catch(() => ({ results: [] }))).results || [];
@@ -104,6 +109,7 @@ export async function onRequestPost({ request, env }) {
   // Enqueue with dedup
   const results = [];
   let enqueued = 0, skipped = 0;
+  const profile = await loadProfile(env);
   for (const jid of jobIds) {
     if (enqueued >= remaining) {
       results.push({ job_id: jid, status: "skipped", reason: "daily_cap" });
@@ -111,14 +117,15 @@ export async function onRequestPost({ request, env }) {
       continue;
     }
     try {
+      const appId = await ensureDraftApplication(env, jid, profile);
       const r = await env.JOBS_DB.prepare(`
         INSERT OR IGNORE INTO application_queue
-          (job_id, status, priority, dedup_key, scheduled_at)
-        VALUES (?, 'pending', 0, ?, datetime('now'))
-      `).bind(jid, String(jid)).run();
+          (job_id, application_id, status, priority, dedup_key, scheduled_at)
+        VALUES (?, ?, 'pending', 0, ?, datetime('now'))
+      `).bind(jid, appId, String(jid)).run();
       if (r?.meta?.changes > 0) {
         enqueued++;
-        results.push({ job_id: jid, status: "enqueued" });
+        results.push({ job_id: jid, application_id: appId, status: "enqueued" });
       } else {
         skipped++;
         results.push({ job_id: jid, status: "skipped", reason: "duplicate" });
@@ -136,6 +143,66 @@ export async function onRequestPost({ request, env }) {
   }
 
   return json({ ok: true, enqueued, skipped, daily_cap_remaining: remaining - enqueued, results, runs }, 200, request, env);
+}
+
+async function ensureDraftApplication(env, jobId, profile) {
+  const existing = await env.JOBS_DB.prepare(`
+    SELECT id, status FROM application WHERE job_id = ? ORDER BY id DESC LIMIT 1
+  `).bind(jobId).first();
+  if (existing?.id) {
+    if (["submitted", "confirmed", "auto_submitted_pending"].includes(existing.status)) {
+      throw new Error(`already_applied:${existing.status}`);
+    }
+    await env.JOBS_DB.prepare(`
+      UPDATE application SET status = CASE WHEN status = 'withdrawn' THEN 'draft' ELSE status END,
+        updated_at = datetime('now') WHERE id = ?
+    `).bind(existing.id).run();
+    return existing.id;
+  }
+
+  const job = await env.JOBS_DB.prepare(`
+    SELECT j.*, c.name AS company_name, c.industry, c.hq_country, c.hq_state, c.slug AS company_slug, c.careers_url
+    FROM job j JOIN company c ON c.id = j.company_id
+    WHERE j.id = ?
+  `).bind(jobId).first();
+  if (!job) throw new Error("job_not_found");
+
+  const company = { name: job.company_name, industry: job.industry, hq_country: job.hq_country, hq_state: job.hq_state };
+  const coverLetter = generateCoverLetter({ profile, job, company });
+  const canonicalAnswers = generateCustomAnswers({ profile, job, company });
+  const questions = extractQuestions(job.description_text || "");
+  const customAnswers = {
+    ...Object.fromEntries(matchCustomQuestions(questions, canonicalAnswers).map((m) => [m.q, m.a])),
+    ...canonicalAnswers,
+  };
+  const salary = extractSalary(job.description_text || "");
+  const ins = await env.JOBS_DB.prepare(`
+    INSERT INTO application (job_id, status, cover_letter, custom_answers, tracking_email, salary_min_job, salary_max_job, salary_currency_job)
+    VALUES (?, 'draft', ?, ?, ?, ?, ?, ?)
+  `).bind(
+    jobId,
+    coverLetter,
+    JSON.stringify(customAnswers),
+    generateTrackingEmail(),
+    salary?.min ?? null,
+    salary?.max ?? null,
+    salary?.currency ?? null,
+  ).run();
+  const id = ins?.meta?.last_row_id;
+  await env.JOBS_DB.prepare(`
+    INSERT INTO application_event (application_id, kind, detail)
+    VALUES (?, 'created', ?)
+  `).bind(id, JSON.stringify({ source: "queue", job_id: jobId })).run().catch(() => null);
+  return id;
+}
+
+function generateTrackingEmail() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let id = "";
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  for (let i = 0; i < bytes.length; i++) id += chars[bytes[i] % chars.length];
+  return `app-${id}@jobs.mehyar.us`;
 }
 
 // Run the head of the queue sequentially. Each entry is processed via

@@ -14,8 +14,14 @@ console.log("== npm run build (vite) ==");
 execSync("npm run build", { cwd: ROOT, stdio: "inherit" });
 
 console.log("== wrangler pages deploy ==");
+const deployEnv = { ...process.env };
+if (deployEnv.CLOUDFLARE_API_KEY) {
+  deployEnv.CLOUDFLARE_EMAIL ||= "mrswelim@gmail.com";
+  delete deployEnv.CLOUDFLARE_API_TOKEN;
+  delete deployEnv.CF_API_TOKEN;
+}
 execSync(`npx wrangler pages deploy "${STATIC_DIR}" --project-name=mehyar-jobs --branch=main --commit-dirty=true`, {
   cwd: ROOT,
   stdio: "inherit",
-  env: { ...process.env },
+  env: deployEnv,
 });

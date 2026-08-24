@@ -36,6 +36,31 @@ export async function sendEmail(env, { to, subject, html, text }) {
     }
   }
 
+  // Outbound over the email-sender Worker (Pages can't bind send_email,
+  // so we bridge via HTTP). Set EMAIL_SENDER_URL + EMAIL_SENDER_TOKEN
+  // in the project's env (wrangler.toml or CF dashboard).
+  if (env.EMAIL_SENDER_URL) {
+    try {
+      const r = await fetch(env.EMAIL_SENDER_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(env.EMAIL_SENDER_TOKEN ? { "authorization": `Bearer ${env.EMAIL_SENDER_TOKEN}` } : {}),
+          "user-agent": "mehyar-jobs-pages/1.0",
+        },
+        body: JSON.stringify({ to: toAddr, subject, text, html }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        return { ok: true, provider: "cf_email_via_worker", id: d.id, sent_at: d.sent_at };
+      }
+      return { ok: false, provider: "cf_email_via_worker", error: d.error || d.detail || `http_${r.status}` };
+    } catch (e) {
+      // Fall through to the REST fallback below.
+      console.log("email.js: sender-Worker fetch failed:", e?.message);
+    }
+  }
+
   // Fallback: try the REST API for email service (same as the
   // Worker Email handler). This is a known shape as of 2026.
   try {
