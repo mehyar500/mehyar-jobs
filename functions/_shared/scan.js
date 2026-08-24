@@ -126,11 +126,12 @@ export async function scanCompanyBatch(env, options = {}) {
 
 export async function syncContractJobs(env, options = {}) {
   const db = env.JOBS_DB;
-  const profile = await loadProfile(env);
+  const profile = options.profile || await loadProfile(env);
   const scanStamp = sqliteTimestamp(new Date(Date.now() - 1000));
   const queries = Array.isArray(options.queries) && options.queries.length ? options.queries : CONTRACT_QUERIES;
+  const fetchContracts = typeof options.fetchContracts === "function" ? options.fetchContracts : fetchHimalayasContracts;
   const startedAt = Date.now();
-  const responses = await Promise.allSettled(queries.map(fetchHimalayasContracts));
+  const responses = await Promise.allSettled(queries.map(fetchContracts));
   const jobs = [];
   const errors = [];
   for (let index = 0; index < responses.length; index += 1) {
@@ -202,7 +203,11 @@ export async function syncContractJobs(env, options = {}) {
     else inserted += 1;
   }
 
-  const removed = errors.length === 0
+  // A fulfilled-but-empty feed is not proof that thousands of contract roles
+  // disappeared. Preserve the last known-good rows unless at least one valid
+  // role was returned by a completely successful refresh.
+  const canDeactivateMissing = shouldDeactivateMissingContractJobs(unique.length, errors.length);
+  const removed = canDeactivateMissing
     ? await db.prepare("UPDATE job SET is_active = 0 WHERE source_kind = 'himalayas' AND is_active = 1 AND last_seen_at < ?").bind(scanStamp).run()
     : { meta: { changes: 0 } };
   await db.prepare(`
@@ -218,16 +223,22 @@ export async function syncContractJobs(env, options = {}) {
   await scoreRows(db, contractRows.results || [], profile);
 
   return {
-    ok: errors.length < queries.length,
+    ok: errors.length < queries.length && unique.length > 0,
     source: "himalayas",
     queries: queries.length,
     found: unique.length,
     inserted,
     updated,
     removed: removed?.meta?.changes || 0,
+    preserved_existing: !canDeactivateMissing,
+    suspicious_empty: unique.length === 0,
     errors,
     duration_ms: Date.now() - startedAt,
   };
+}
+
+export function shouldDeactivateMissingContractJobs(foundCount, errorCount) {
+  return Number(foundCount) > 0 && Number(errorCount) === 0;
 }
 
 async function persistCompanyJobs(env, company, items, scanStamp, profile) {

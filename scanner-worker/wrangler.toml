@@ -11,6 +11,18 @@ head_sampling_rate = 1
 binding = "JOBS_DB"
 database_name = "mehyar-jobs"
 database_id = "de494f9a-9da2-4123-8bb7-269473cca8a6"
+migrations_dir = "../migrations"
+
+[[send_email]]
+name = "EMAIL"
+allowed_destination_addresses = ["mrswelim@gmail.com"]
+allowed_sender_addresses = ["noreply@mehyar.us"]
+
+[vars]
+DIGEST_TO_EMAIL = "mrswelim@gmail.com"
+DIGEST_FROM_EMAIL = "noreply@mehyar.us"
+DIGEST_REPLY_TO = "info@mehyar.us"
+JOBS_APP_URL = "https://jobs.mehyar.us"
 
 [triggers]
 crons = ["*/15 * * * *"]

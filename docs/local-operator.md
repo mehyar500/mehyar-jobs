@@ -38,16 +38,33 @@ CAPTCHA, unknown ATSs, missing resume fields, and absent confirmation screens st
 
 ## Cloudflare daily discovery
 
-`mehyar-jobs-scanner` runs every 15 minutes and advances one bounded D1-backed batch until the current UTC day's scan is complete. The first batch synchronizes the source directory and refreshes U.S./worldwide contractor jobs from Himalayas. Inspect it without changing state:
+`mehyar-jobs-scanner` runs every 15 minutes and advances one bounded D1-backed batch until the current UTC day's scan is complete. The first batch synchronizes the source directory and refreshes U.S./worldwide contractor jobs from Himalayas.
+
+After the final batch commits, the same Worker uses its restricted Cloudflare Email Service binding to send `mrswelim@gmail.com` a ranked summary. The attached CSV contains every active job first discovered during that scan, including full-time and contract roles. D1 stores one email outbox row per UTC scan day, retries failed sends, and records Cloudflare's message ID so completed days are not sent twice.
+
+A contract-feed outage blocks the scan for at most three refresh attempts. After that, the Worker preserves the last known-good contract rows, continues the W-2/company scan, and puts a prominent partial-coverage warning in the email. The contract refresh continues independently every six hours and is retried again on the next daily scan; it never stalls future daily emails.
+
+Transient delivery failures retry with bounded backoff. A permanent binding, sender, recipient, header, or content validation failure is stored as `email_status='dead_letter'` instead of being retried forever. After correcting the configuration, requeue that day with:
+
+```powershell
+npx wrangler d1 execute mehyar-jobs --remote --config scanner-worker/wrangler.toml --command "UPDATE daily_job_digest SET email_status='pending', email_last_error=NULL, email_error_code=NULL, email_next_attempt_at=NULL WHERE scan_day='YYYY-MM-DD' AND email_status='dead_letter';"
+```
+
+Inspect the scan and email state without changing it:
 
 ```powershell
 curl.exe https://mehyar-jobs-scanner.mehyar.workers.dev
-npx wrangler d1 execute mehyar-jobs --remote --command "SELECT * FROM scan_scheduler_state"
+npx wrangler d1 execute mehyar-jobs --remote --config scanner-worker/wrangler.toml --command "SELECT * FROM scan_scheduler_state; SELECT * FROM daily_job_digest ORDER BY scan_day DESC LIMIT 7;"
 ```
 
-Deploy the scheduler after the normal Pages deploy:
+The normal release command runs checks, applies remote D1 migrations, and deploys both Pages and the scanner Worker:
 
 ```powershell
 npm run deploy
+```
+
+For a scanner-only release:
+
+```powershell
 npm run deploy:scanner
 ```
