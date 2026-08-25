@@ -11,6 +11,8 @@
     "test:pipeline": "node scripts/test-pipeline.mjs",
     "test:scanner": "node scripts/test-scanner.mjs",
     "test:digest": "node scripts/test-daily-job-digest.mjs",
+    "test:job-filters": "node scripts/test-job-filters.mjs",
+    "test:job-filters-ui": "node scripts/test-job-filters-ui.mjs",
     "test:local-worker": "node scripts/test-local-application-worker.mjs",
     "local:pipeline": "node scripts/local-pipeline.mjs",
     "local:apply": "node scripts/local-application-worker.mjs",

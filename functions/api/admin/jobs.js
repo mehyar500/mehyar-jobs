@@ -1,4 +1,4 @@
-// GET /api/admin/jobs?fit_min=&q=&industry=&remote=&engagement=&company_id=&posted_within=&limit=&offset=
+// GET /api/admin/jobs?fit_min=&q=&industry=&remote=&engagement=&company_id=&posted_within=&salary_min=&limit=&offset=
 //
 // Returns the full job table joined with company + fit-score, sorted by
 // fit_score DESC. Auth: admin (cross-app via shared JWT).
@@ -18,33 +18,11 @@ export async function onRequestGet({ request, env }) {
   const db = env.JOBS_DB;
 
   const url = new URL(request.url);
-  const q = (url.searchParams.get("q") || "").trim();
-  const industry = (url.searchParams.get("industry") || "").trim();
-  const remote = (url.searchParams.get("remote") || "").trim();
-  const engagement = (url.searchParams.get("engagement") || "").trim();
-  const fitMin = Math.max(0, Math.min(100, parseInt(url.searchParams.get("fit_min") || "0", 10)));
-  const companyId = url.searchParams.get("company_id") || "";
-  const postedWithin = parseInt(url.searchParams.get("posted_within") || "0", 10); // days
-  const includeHardNo = url.searchParams.get("include_hard_no") === "1";
-  const sort = url.searchParams.get("sort") || "fit"; // fit | recent | company | posted | salary
-  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
-  const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
+  const filters = readJobFilters(url);
+  const { q, industry, remote, engagement, fitMin, companyId, postedWithin, salaryMin, includeHardNo, sort, limit, offset } = filters;
 
   // Build WHERE
-  const where = ["j.is_active = 1"];
-  const binds = [];
-  if (q) { where.push("(LOWER(j.title) LIKE ? OR LOWER(j.description_text) LIKE ? OR LOWER(c.name) LIKE ?)"); const qn = "%" + q.toLowerCase() + "%"; binds.push(qn, qn, qn); }
-  if (industry) { where.push("c.industry = ?"); binds.push(industry); }
-  if (remote) { where.push("j.remote_policy = ?"); binds.push(remote); }
-  if (engagement === "contract") {
-    where.push("LOWER(COALESCE(j.employment_type, '')) IN ('contract', 'contractor', 'freelance', 'temporary')");
-  } else if (engagement === "employee") {
-    where.push("LOWER(COALESCE(j.employment_type, '')) IN ('full_time', 'full-time', 'fulltime', 'regular', 'permanent')");
-  }
-  if (companyId) { where.push("j.company_id = ?"); binds.push(parseInt(companyId, 10)); }
-  if (postedWithin > 0) { where.push("j.posted_at IS NOT NULL AND julianday(j.posted_at) > julianday('now', ?)"); binds.push(`-${postedWithin} day`); }
-  if (!includeHardNo) { where.push("(jf.hard_no IS NULL OR jf.hard_no = 0)"); }
-  if (fitMin > 0) { where.push("(jf.score IS NULL OR jf.score >= ?)"); binds.push(fitMin); }
+  const { where, binds } = buildJobWhere(filters);
 
   const orderBy =
     sort === "recent"    ? "j.first_seen_at DESC" :
@@ -100,9 +78,64 @@ export async function onRequestGet({ request, env }) {
     total: count?.n ?? 0,
     facets: facets.results || [],
     sort, fit_min: fitMin, q, industry, remote,
-    engagement,
+    engagement, posted_within: postedWithin, salary_min: salaryMin,
     updated_at: new Date().toISOString(),
   }, 200, request, env);
 }
 
 function safeJson(s, fb) { try { return JSON.parse(s); } catch { return fb; } }
+
+export function readJobFilters(url) {
+  return {
+    q: (url.searchParams.get("q") || "").trim(),
+    industry: (url.searchParams.get("industry") || "").trim(),
+    remote: (url.searchParams.get("remote") || "").trim(),
+    engagement: (url.searchParams.get("engagement") || "").trim(),
+    fitMin: clampInt(url.searchParams.get("fit_min"), 0, 100, 0),
+    companyId: clampInt(url.searchParams.get("company_id"), 0, Number.MAX_SAFE_INTEGER, 0),
+    postedWithin: clampInt(url.searchParams.get("posted_within"), 0, 3650, 0),
+    salaryMin: clampInt(url.searchParams.get("salary_min"), 0, 10_000_000, 0),
+    includeHardNo: url.searchParams.get("include_hard_no") === "1",
+    sort: url.searchParams.get("sort") || "fit",
+    limit: clampInt(url.searchParams.get("limit"), 1, 100, 50),
+    offset: clampInt(url.searchParams.get("offset"), 0, Number.MAX_SAFE_INTEGER, 0),
+  };
+}
+
+export function buildJobWhere(filters) {
+  const { q, industry, remote, engagement, fitMin, companyId, postedWithin, salaryMin, includeHardNo } = filters;
+  const where = ["j.is_active = 1"];
+  const binds = [];
+
+  if (q) {
+    where.push("(LOWER(j.title) LIKE ? OR LOWER(j.description_text) LIKE ? OR LOWER(c.name) LIKE ?)");
+    const qn = `%${q.toLowerCase()}%`;
+    binds.push(qn, qn, qn);
+  }
+  if (industry) { where.push("c.industry = ?"); binds.push(industry); }
+  if (remote) { where.push("j.remote_policy = ?"); binds.push(remote); }
+  if (engagement === "contract") {
+    where.push("LOWER(COALESCE(j.employment_type, '')) IN ('contract', 'contractor', 'freelance', 'temporary', '1099', 'c2c')");
+  } else if (engagement === "employee") {
+    where.push("LOWER(COALESCE(j.employment_type, '')) IN ('full_time', 'full-time', 'full time', 'fulltime', 'regular', 'permanent')");
+  }
+  if (companyId > 0) { where.push("j.company_id = ?"); binds.push(companyId); }
+  if (postedWithin > 0) {
+    where.push("COALESCE(j.posted_at, j.first_seen_at) IS NOT NULL AND julianday(COALESCE(j.posted_at, j.first_seen_at)) > julianday('now', ?)");
+    binds.push(`-${postedWithin} day`);
+  }
+  if (salaryMin > 0) {
+    where.push("COALESCE(j.salary_min, j.salary_max, 0) >= ?");
+    binds.push(salaryMin);
+  }
+  if (!includeHardNo) where.push("(jf.hard_no IS NULL OR jf.hard_no = 0)");
+  // A minimum fit score should not leak unscored jobs into the results.
+  if (fitMin > 0) { where.push("jf.score >= ?"); binds.push(fitMin); }
+
+  return { where, binds };
+}
+
+function clampInt(value, min, max, fallback) {
+  const parsed = Number.parseInt(value || "", 10);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}

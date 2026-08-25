@@ -34,6 +34,8 @@ export default function Jobs() {
   const [industry, setIndustry] = useState("");
   const [remote, setRemote] = useState("");
   const [engagement, setEngagement] = useState("");
+  const [postedWithin, setPostedWithin] = useState(0);
+  const [salaryMin, setSalaryMin] = useState(0);
   const [fitMin, setFitMin] = useState(0);
   const [sort, setSort] = useState<"fit" | "recent" | "company" | "posted" | "salary">("fit");
   const [showHardNo, setShowHardNo] = useState(true);
@@ -54,9 +56,25 @@ export default function Jobs() {
     if (industry) p.industry = industry;
     if (remote) p.remote = remote;
     if (engagement) p.engagement = engagement;
+    if (postedWithin) p.posted_within = postedWithin;
+    if (salaryMin) p.salary_min = salaryMin;
     if (showHardNo) p.include_hard_no = 1;
     return p;
-  }, [q, industry, remote, engagement, fitMin, sort, showHardNo]);
+  }, [q, industry, remote, engagement, postedWithin, salaryMin, fitMin, sort, showHardNo]);
+
+  const activeFilterCount = [q, industry, remote, engagement, postedWithin, salaryMin, fitMin].filter(Boolean).length + (showHardNo ? 0 : 1);
+
+  const clearFilters = () => {
+    setQ("");
+    setIndustry("");
+    setRemote("");
+    setEngagement("");
+    setPostedWithin(0);
+    setSalaryMin(0);
+    setFitMin(0);
+    setShowHardNo(true);
+    setSort("fit");
+  };
 
   const jobsQ = useQuery({
     queryKey: ["jobs", params],
@@ -277,43 +295,123 @@ export default function Jobs() {
       )}
 
       {/* Filters */}
-      <div className="card">
-        <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr" }}>
-          <input type="search" placeholder="Search title / company / description…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
-            <option value="">all industries</option>
-            {facets.map((f: any) => (
-              <option key={f.industry} value={f.industry}>{f.industry || "(none)"} ({f.n})</option>
-            ))}
-          </select>
-          <select value={remote} onChange={(e) => setRemote(e.target.value)}>
-            <option value="">any location</option>
-            <option value="remote">remote</option>
-            <option value="hybrid">hybrid</option>
-            <option value="onsite">on-site</option>
-          </select>
-          <select value={engagement} onChange={(e) => setEngagement(e.target.value)}>
-            <option value="">any engagement</option>
-            <option value="employee">W-2 / employee</option>
-            <option value="contract">contract / 1099</option>
-          </select>
-          <select value={sort} onChange={(e) => setSort(e.target.value as any)}>
-            <option value="fit">sort: fit score (best match)</option>
-            <option value="recent">sort: recently added</option>
-            <option value="posted">sort: recently posted at company</option>
-            <option value="salary">sort: salary (highest first)</option>
-            <option value="company">sort: company (A→Z)</option>
-          </select>
+      <div className="card job-filters" data-testid="job-filters">
+        <div className="between wrap job-filters-heading">
+          <div>
+            <h2 className="h2">Filter jobs</h2>
+            <p className="xs muted">Combine filters to narrow the list.</p>
+          </div>
+          <div className="row wrap">
+            <span className="sm muted" aria-live="polite">{total.toLocaleString()} matching job{total === 1 ? "" : "s"}</span>
+            {activeFilterCount > 0 && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters} data-testid="clear-job-filters">
+                Clear {activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"}
+              </button>
+            )}
+          </div>
         </div>
-        <div className="row wrap" style={{ marginTop: 10, gap: 6 }}>
-          <span className="xs muted">fit ≥</span>
-          {[0, 30, 50, 70, 90].map((n) => (
-            <button key={n} className={`tab ${fitMin === n ? "active" : ""}`} onClick={() => setFitMin(n)}>{n === 0 ? "all" : n}</button>
-          ))}
-          <span className="xs muted" style={{ marginLeft: 12 }}>·</span>
-          <label className="row xs">
+
+        <label className="filter-field filter-search">
+          <span className="filter-label">Search</span>
+          <input type="search" placeholder="Job title, company, or keyword…" value={q} onChange={(e) => setQ(e.target.value)} data-testid="job-search" />
+        </label>
+
+        <div className="job-filter-quick-grid">
+          <fieldset className="filter-field filter-fieldset">
+            <legend className="filter-label">Job type</legend>
+            <div className="segmented-control" data-testid="employment-filter">
+              {[
+                { value: "", label: "All types" },
+                { value: "employee", label: "Full-time" },
+                { value: "contract", label: "Contract" },
+              ].map((option) => (
+                <button
+                  key={option.value || "all"}
+                  type="button"
+                  className={engagement === option.value ? "active" : ""}
+                  aria-pressed={engagement === option.value}
+                  onClick={() => setEngagement(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="filter-field filter-fieldset">
+            <legend className="filter-label">Fit score</legend>
+            <div className="segmented-control" data-testid="fit-filter">
+              {[0, 50, 70, 80, 90].map((score) => (
+                <button
+                  key={score}
+                  type="button"
+                  className={fitMin === score ? "active" : ""}
+                  aria-pressed={fitMin === score}
+                  onClick={() => setFitMin(score)}
+                >
+                  {score === 0 ? "Any fit" : `${score}+`}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+
+        <div className="job-filter-grid">
+          <label className="filter-field">
+            <span className="filter-label">Date posted</span>
+            <select value={postedWithin} onChange={(e) => setPostedWithin(Number(e.target.value))} data-testid="recent-filter">
+              <option value={0}>Any time</option>
+              <option value={1}>Past 24 hours</option>
+              <option value={3}>Past 3 days</option>
+              <option value={7}>Past week</option>
+              <option value={14}>Past 2 weeks</option>
+              <option value={30}>Past month</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span className="filter-label">Workplace</span>
+            <select value={remote} onChange={(e) => setRemote(e.target.value)}>
+              <option value="">Any workplace</option>
+              <option value="remote">Remote</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="onsite">On-site</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span className="filter-label">Industry</span>
+            <select value={industry} onChange={(e) => setIndustry(e.target.value)}>
+              <option value="">All industries</option>
+              {facets.map((f: any) => (
+                <option key={f.industry} value={f.industry}>{f.industry || "(none)"} ({f.n})</option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span className="filter-label">Minimum salary</span>
+            <select value={salaryMin} onChange={(e) => setSalaryMin(Number(e.target.value))}>
+              <option value={0}>Any salary</option>
+              <option value={80000}>$80k+</option>
+              <option value={100000}>$100k+</option>
+              <option value={120000}>$120k+</option>
+              <option value={150000}>$150k+</option>
+              <option value={180000}>$180k+</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span className="filter-label">Sort by</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as any)}>
+              <option value="fit">Best fit</option>
+              <option value="posted">Newest posting</option>
+              <option value="recent">Recently added</option>
+              <option value="salary">Highest salary</option>
+              <option value="company">Company A–Z</option>
+            </select>
+          </label>
+        </div>
+        <div className="row wrap job-filter-footer">
+          <label className="row xs hard-no-toggle">
             <input type="checkbox" checked={showHardNo} onChange={(e) => setShowHardNo(e.target.checked)} />
-            <span className="muted">include hard-no</span>
+            <span className="muted">Show hard-no roles</span>
           </label>
           <span className="grow" />
           <label className="row xs" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -335,7 +433,7 @@ export default function Jobs() {
           >
             {applyingTop ? "🚀 applying…" : `🚀 apply to top ${topN}`}
           </button>
-          <span className="xs muted">{total.toLocaleString()} jobs · {items.length} shown · v2026-07-28</span>
+          <span className="xs muted">{items.length} shown · v2026-08-25</span>
         </div>
       </div>
 
@@ -359,10 +457,14 @@ export default function Jobs() {
           <div className="col" style={{ padding: 32, textAlign: "center", gap: 8 }}>
             <span style={{ fontSize: 36 }}>🤷</span>
             <h2 className="h2">No jobs match your filters</h2>
-            <p className="sm muted">Try lowering fit, clearing search, or hitting Rescan to refresh.</p>
-            <button className="btn btn-primary" onClick={triggerRescan} disabled={scraping}>
-              {scraping ? "scraping…" : "🔄 Rescan + Score now"}
-            </button>
+            <p className="sm muted">Try widening or clearing the current filters.</p>
+            {activeFilterCount > 0 ? (
+              <button className="btn btn-primary" onClick={clearFilters}>Clear all filters</button>
+            ) : (
+              <button className="btn btn-primary" onClick={triggerRescan} disabled={scraping}>
+                {scraping ? "scraping…" : "🔄 Rescan + Score now"}
+              </button>
+            )}
           </div>
         ) : (
           <table className="responsive-table">
