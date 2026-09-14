@@ -44,46 +44,46 @@ function titleMatchScore(jobTitle, targetTitles) {
   for (const tt of targetTitles || []) {
     for (const v of expandSynonyms(tt)) {
       if (!v) continue;
-      if (t === v) return 50;
-      if (t.includes(v) || v.includes(t)) return 40;
+      if (t === v) return { score: 50, matched: tt, how: "exact" };
+      if (t.includes(v) || v.includes(t)) return { score: 40, matched: tt, how: "close" };
       // Token overlap fallback
       const ttTokens = new Set(v.split(" "));
       const jobTokens = new Set(t.split(" "));
       const intersect = [...ttTokens].filter((x) => jobTokens.has(x));
-      if (intersect.length >= Math.min(2, ttTokens.size)) return 30;
+      if (intersect.length >= Math.min(2, ttTokens.size)) return { score: 30, matched: tt, how: "partial" };
     }
   }
-  return 0;
+  return { score: 0, matched: null, how: null };
 }
 
 function keywordScore(text, keywords) {
-  if (!text || !keywords?.length) return 0;
+  if (!text || !keywords?.length) return { score: 0, hits: [] };
   const t = norm(text);
-  let hits = 0;
+  const hits = [];
   for (const k of keywords) {
     const kn = norm(k);
-    if (kn && t.includes(kn)) hits += 1;
+    if (kn && t.includes(kn)) hits.push(k);
   }
-  if (hits >= 2) return 20;
-  if (hits >= 1) return 10;
-  return 0;
+  if (hits.length >= 2) return { score: 20, hits };
+  if (hits.length >= 1) return { score: 10, hits };
+  return { score: 0, hits: [] };
 }
 
 function locationScore(loc, remotePolicy, prefs, remoteRequired) {
   if (remoteRequired) {
-    if (remotePolicy === "remote") return 10;
-    if (remotePolicy === "hybrid") return 4;
-    return 0;
+    if (remotePolicy === "remote") return { score: 10, note: "remote — matches your requirement" };
+    if (remotePolicy === "hybrid") return { score: 4, note: "hybrid (you asked for remote)" };
+    return { score: 0, note: null };
   }
-  if (!loc || !prefs?.length) return 0;
+  if (!loc || !prefs?.length) return { score: 0, note: null };
   const l = norm(loc);
   for (const p of prefs) {
     const pn = norm(p);
     if (!pn) continue;
-    if (pn === "remote" && remotePolicy === "remote") return 10;
-    if (l.includes(pn) || pn.includes(l)) return 10;
+    if (pn === "remote" && remotePolicy === "remote") return { score: 10, note: "remote — matches your preference" };
+    if (l.includes(pn) || pn.includes(l)) return { score: 10, note: `location “${p}” matches` };
   }
-  return 0;
+  return { score: 0, note: null };
 }
 
 function salaryScore(min, max, floorUsd) {
@@ -132,26 +132,51 @@ function hardNoCheck(job, profile, industry) {
 
 export function scoreJob(job, profile, industry) {
   const reasons = [];
+  const explain = [];
   let score = 0;
 
-  const titleScore = titleMatchScore(job.title, profile?.target_titles || []);
-  if (titleScore) { score += titleScore; reasons.push(`title match +${titleScore}`); }
+  const titleRes = titleMatchScore(job.title, profile?.target_titles || []);
+  if (titleRes.score) {
+    score += titleRes.score;
+    reasons.push(`title match +${titleRes.score}`);
+    const howWord = titleRes.how === "exact" ? "exactly matches" : titleRes.how === "close" ? "closely matches" : "partly matches";
+    explain.push(`✓ Title ${howWord} your target “${titleRes.matched}” (+${titleRes.score})`);
+  }
 
-  const kwScore = keywordScore(`${job.title || ""} ${job.description_text || ""}`, profile?.keywords || []);
-  if (kwScore) { score += kwScore; reasons.push(`keywords +${kwScore}`); }
+  const kwRes = keywordScore(`${job.title || ""} ${job.description_text || ""}`, profile?.keywords || []);
+  if (kwRes.score) {
+    score += kwRes.score;
+    reasons.push(`keywords +${kwRes.score}`);
+    const shown = kwRes.hits.slice(0, 6).join(", ");
+    explain.push(`✓ ${kwRes.hits.length} of your skills in the posting: ${shown}${kwRes.hits.length > 6 ? "…" : ""} (+${kwRes.score})`);
+  }
 
-  const locScore = locationScore(job.location, job.remote_policy, profile?.locations, profile?.remote_required);
-  if (locScore) { score += locScore; reasons.push(`location/remote +${locScore}`); }
+  const locRes = locationScore(job.location, job.remote_policy, profile?.locations, profile?.remote_required);
+  if (locRes.score) {
+    score += locRes.score;
+    reasons.push(`location/remote +${locRes.score}`);
+    explain.push(`✓ ${locRes.note} (+${locRes.score})`);
+  }
 
   const salScore = salaryScore(job.salary_min, job.salary_max, profile?.min_salary_usd);
-  if (salScore > 0) { score += salScore; reasons.push(`salary +${salScore}`); }
-  if (salScore < 0) { score += salScore; reasons.push(`salary below floor ${salScore}`); }
+  if (salScore > 0) {
+    score += salScore; reasons.push(`salary +${salScore}`);
+    explain.push(`✓ Salary clears your floor (+${salScore})`);
+  }
+  if (salScore < 0) {
+    score += salScore; reasons.push(`salary below floor ${salScore}`);
+    explain.push(`⚠ Salary looks below your floor (${salScore})`);
+  }
 
   const rec = recentBonus(job.posted_at);
-  if (rec) { score += rec; reasons.push(`recent +${rec}`); }
+  if (rec) {
+    score += rec; reasons.push(`recent +${rec}`);
+    explain.push(`✓ Posted recently — fresh listing (+${rec})`);
+  }
 
   if (industry && (profile?.preferred_industries || []).some((i) => norm(i) === norm(industry))) {
     score += 5; reasons.push(`preferred industry +5`);
+    explain.push(`✓ Preferred industry: ${industry} (+5)`);
   }
 
   // Floor + clamp
@@ -160,9 +185,10 @@ export function scoreJob(job, profile, industry) {
   const hard = hardNoCheck(job, profile, industry);
   if (hard.hard_no) {
     reasons.push(`hard no: ${hard.reason}`);
+    explain.push(`⛔ Excluded: ${hard.reason}`);
   }
 
-  return { score, reasons, hard_no: hard.hard_no, hard_no_reason: hard.reason };
+  return { score, reasons, explain, hard_no: hard.hard_no, hard_no_reason: hard.reason };
 }
 
 export async function loadProfile(arg) {

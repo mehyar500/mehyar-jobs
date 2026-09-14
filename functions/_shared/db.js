@@ -5,7 +5,7 @@
 // file is run inside a try-catch (CREATE IF NOT EXISTS) and its name
 // is recorded in `__migrations` so we don't re-apply.
 
-import { MIGRATION_0001, MIGRATION_0002, MIGRATION_0003, MIGRATION_0004, MIGRATION_0005, MIGRATION_0006, MIGRATION_0007 } from "./migrations.js";
+import { MIGRATION_0001, MIGRATION_0002, MIGRATION_0003, MIGRATION_0004, MIGRATION_0005, MIGRATION_0006, MIGRATION_0007, MIGRATION_0008, MIGRATION_0009, MIGRATION_0010, MIGRATION_0011, MIGRATION_0012, MIGRATION_0013, MIGRATION_0014, MIGRATION_0015, MIGRATION_0016, MIGRATION_0017, MIGRATION_0018, MIGRATION_0019, MIGRATION_0020, MIGRATION_0021, MIGRATION_0022 } from "./migrations.js";
 
 const MIGRATIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS __migrations (
@@ -22,6 +22,21 @@ const MIGRATIONS = {
   "0005_profile_identity.sql":     MIGRATION_0005,
   "0006_resumable_scans.sql":      MIGRATION_0006,
   "0007_daily_job_digest.sql":      MIGRATION_0007,
+  "0008_multiuser.sql":             MIGRATION_0008,
+  "0009_user_digest_log.sql":       MIGRATION_0009,
+  "0010_llm_review.sql":            MIGRATION_0010,
+  "0011_anon_free_run.sql":          MIGRATION_0011,
+  "0012_job_alerts.sql":              MIGRATION_0012,
+  "0013_growth_engine.sql":           MIGRATION_0013,
+  "0014_sms_funnel.sql":              MIGRATION_0014,
+  "0015_product_slots.sql":            MIGRATION_0015,
+  "0016_consent_table.sql":            MIGRATION_0016,
+  "0017_email_warmup.sql":              MIGRATION_0017,
+  "0018_product_catalog.sql":           MIGRATION_0018,
+  "0019_product_details.sql":           MIGRATION_0019,
+  "0020_email_send_meta.sql":            MIGRATION_0020,
+  "0021_campaign_plan.sql":             MIGRATION_0021,
+  "0022_landing_rotation.sql":          MIGRATION_0022,
 };
 
 export async function ensureSchema(env) {
@@ -38,6 +53,15 @@ export async function ensureSchema(env) {
       catch { /* ignore — IF NOT EXISTS makes re-runs safe */ }
     }
     await db.prepare("INSERT INTO __migrations (name) VALUES (?)").bind(name).run().catch(() => {});
+  }
+
+  // Seed the owner's account + migrate his legacy profile (idempotent).
+  // Lazy import avoids a hard cycle: userAuth imports adminAuth only.
+  try {
+    const { ensureOwnerAccount } = await import("./userAuth.js");
+    await ensureOwnerAccount(env);
+  } catch (e) {
+    console.log("ensureOwnerAccount skipped:", e?.message || e);
   }
 }
 
