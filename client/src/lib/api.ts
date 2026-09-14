@@ -31,6 +31,13 @@ export function getPrincipal(): any | null {
 // API base: same origin during dev/prod.
 export const API_BASE = "";
 
+// LLM review endpoint on the scanner Worker (Workers AI). Filled in at
+// deploy time from the worker's workers.dev URL; override via
+// localStorage "mehyar_jobs_review_url" for local testing.
+export const REVIEW_API_URL =
+  (typeof localStorage !== "undefined" && localStorage.getItem("mehyar_jobs_review_url")) ||
+  "https://mehyar-jobs-scanner.mehyar.workers.dev/review";
+
 // Auth endpoints on jobs.mehyar.us (same-origin, no CORS preflight).
 // The token issued here verifies on both mehyar-web and mehyar-jobs
 // because both apps share ADMIN_SESSION_SECRET.
@@ -136,6 +143,185 @@ export const api = {
   // Public
   publicHealth: () => fetch(API_BASE + "/api/public/health").then((r) => r.json()),
   publicStats:  () => fetch(API_BASE + "/api/public/stats").then((r) => r.json()),
+  publicJobs:   (q: any = {}) => fetch(API_BASE + "/api/jobs?" + new URLSearchParams(
+                     Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => [k, String(v)]))).toString()).then(async (r) => {
+                       if (!r.ok) throw new Error(`jobs (${r.status})`);
+                       return r.json();
+                     }),
+
+  // Public account: signup / login (token stored like the admin one)
+  signup: (body: { email: string; password: string; display_name?: string; title?: string; location?: string; newsletter_opt_in: boolean; ref?: string }) => {
+    // Referral: carry ?ref=MJ-XXXXXX from the invite link through signup.
+    let ref = body.ref;
+    try { ref = ref || new URLSearchParams(window.location.search).get("ref") || undefined; } catch { /* ssr-safe */ }
+    const qs = ref ? "?ref=" + encodeURIComponent(ref) : "";
+    return fetch(API_BASE + "/api/auth/signup" + qs, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then(async (r): Promise<any> => { const j: any = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j?.error || "signup failed"), { body: j }); return j; })
+      .then((j: any) => { setToken(j.token, { sub: `user:${j.user.id}`, exp: j.expires_at, user: j.user }); return j; });
+  },
+  userLogin: (identifier: string, password: string) =>
+    fetch(API_BASE + "/api/auth/user-login", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ identifier, password }) })
+      .then(async (r): Promise<any> => { const j: any = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j?.error || "login failed"), { body: j }); return j; })
+      .then((j: any) => { setToken(j.token, { sub: `user:${j.user.id}`, exp: j.expires_at, user: j.user }); return j; }),
+
+  // Session helpers
+  isUserSession: () => String(getPrincipal()?.sub || "").startsWith("user:"),
+  isAdminSession: () => { const s = String(getPrincipal()?.sub || ""); return !!s && !s.startsWith("user:"); },
+
+  // Logged-in user
+  me:        () => apiFetch("/api/me"),
+  saveResume: (body: { text: string; filename?: string; mime?: string; base64?: string; current_title?: string; years_experience?: number; locations?: string; remote_preference?: string }) =>
+                 apiFetch("/api/me/resume", { method: "POST", body: JSON.stringify({
+                   resume_text: body.text,
+                   resume_filename: body.filename,
+                   resume_mime: body.mime,
+                   resume_base64: body.base64,
+                   current_title: body.current_title,
+                   years_experience: body.years_experience,
+                   locations: body.locations,
+                   remote_preference: body.remote_preference,
+                 }) }),
+  runResume: () => apiFetch("/api/me/run", { method: "POST" }),
+  myMatches: (q: any = {}) => apiFetch("/api/me/matches?" + new URLSearchParams(q).toString()),
+  setNewsletter: (opt_in: boolean) => apiFetch("/api/me/newsletter", { method: "POST", body: JSON.stringify({ opt_in }) }),
+
+  // Job alerts: save a search, get emailed only the NEW matching jobs.
+  myAlerts: () => apiFetch("/api/me/alerts"),
+  createAlert: (filters: { q?: string; industry?: string; location?: string; remote?: string; employment_type?: string; name?: string }) =>
+    apiFetch("/api/me/alerts", { method: "POST", body: JSON.stringify(filters) }),
+  deleteAlert: (id: number) => apiFetch("/api/me/alerts?id=" + id, { method: "DELETE" }),
+
+  // Growth engine: sponsored slot, roast sharing, referrals, featured requests.
+  sponsored: (slot = "matches") => fetch(API_BASE + "/api/public/sponsored?slot=" + encodeURIComponent(slot)).then((r) => r.json()),
+  createRoast: () => apiFetch("/api/me/roast", { method: "POST" }),
+  deleteRoast: (id: string) => apiFetch("/api/me/roast?id=" + encodeURIComponent(id), { method: "DELETE" }),
+  myReferral: () => apiFetch("/api/me/referral"),
+  requestFeatured: (body: any) =>
+    fetch(API_BASE + "/api/public/request-featured", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()),
+
+  // Newsletter unsubscribe (no login needed with a signed token)
+  unsubscribe: (token: string) =>
+    fetch(API_BASE + "/api/newsletter/unsubscribe?token=" + encodeURIComponent(token)).then((r) => r.json()),
+  requestUnsubscribe: (email: string) =>
+    fetch(API_BASE + "/api/newsletter/unsubscribe-request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) })
+      .then((r) => r.json()),
+
+  // Free funnel: one resume check per visitor, no account needed.
+  // Resume parsing: upload a PDF/DOCX/TXT, get clean text back (server-side).
+  parseResume: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    const token = getToken();
+    return fetch(API_BASE + "/api/public/parse-resume", {
+      method: "POST",
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token } : {},
+      body: fd,
+    }).then(async (r): Promise<any> => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) throw Object.assign(new Error(j?.message || j?.error || "Couldn't read that file"), { body: j });
+      return j;
+    });
+  },
+  freeRun: (resume_text: string, target_title?: string, location?: string) => {
+    const token = getToken();
+    return fetch(API_BASE + "/api/public/free-run", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ resume_text, target_title, location }),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.message || j?.error || `free run failed (${r.status})`), { body: j });
+      return j;
+    });
+  },
+
+  // AI studio on the scanner Worker: tailored resume + cover letter.
+  // Optional auth (bigger daily allowance for members); anonymous works too.
+  tailorResume: (body: { resume_text?: string; target_role?: string; job?: any }) => {
+    const token = getToken();
+    const base = REVIEW_API_URL.replace(/\/review$/, "");
+    return fetch(base + "/tailor", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.message || j?.error || `tailor failed (${r.status})`), { body: j });
+      return j;
+    });
+  },
+  coverLetter: (body: { resume_text?: string; job_id?: number; job?: any }) => {
+    const token = getToken();
+    const base = REVIEW_API_URL.replace(/\/review$/, "");
+    return fetch(base + "/cover-letter", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.message || j?.error || `cover letter failed (${r.status})`), { body: j });
+      return j;
+    });
+  },
+
+  // AI job-search chat on the scanner Worker: searches the live jobs DB,
+  // fit-scores matches, answers conversationally. Rate-limited per day.
+  chat: (body: { message: string; history?: { role: string; content: string }[]; resume_text?: string }) => {
+    const token = getToken();
+    const base = REVIEW_API_URL.replace(/\/review$/, "");
+    return fetch(base + "/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.message || j?.error || `chat failed (${r.status})`), { body: j });
+      return j;
+    });
+  },
+
+  // LLM resume review (runs on the scanner Worker, Workers AI)
+  reviewResume: (resume_text?: string) => {
+    const token = getToken();
+    return fetch(REVIEW_API_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(resume_text ? { resume_text } : {}),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.error || `review failed (${r.status})`), { body: j });
+      return j;
+    });
+  },
+
+  // Newsletter subscribe (double opt-in, no account needed)
+  subscribeNewsletter: (email: string, source = "homepage") =>
+    fetch(API_BASE + "/api/public/offer-email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, source }),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.error || "subscribe failed"), { body: j });
+      return j;
+    }),
+
+  // ATS Mirror: deep ATS audit + rewritten resume (scanner Worker, optional auth)
+  atsMirror: (body: { resume_text: string; target_role?: string }) => {
+    const token = getToken();
+    const base = REVIEW_API_URL.replace(/\/review$/, "");
+    return fetch(base + "/ats-mirror", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    }).then(async (r) => {
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) throw Object.assign(new Error(j?.message || j?.error || `ATS mirror failed (${r.status})`), { body: j });
+      return j;
+    });
+  },
 
   // Auth-required
   profile:      () => apiFetch("/api/admin/profile"),

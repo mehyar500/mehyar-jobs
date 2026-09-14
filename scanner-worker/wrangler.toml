@@ -15,8 +15,12 @@ migrations_dir = "../migrations"
 
 [[send_email]]
 name = "EMAIL"
-allowed_destination_addresses = ["mrswelim@gmail.com"]
+# No allowed_destination_addresses: the worker sends digests to newsletter
+# subscribers (any address). The sender identity is still restricted below.
 allowed_sender_addresses = ["noreply@mehyar.us"]
+
+[ai]
+binding = "AI"
 
 [vars]
 DIGEST_TO_EMAIL = "mrswelim@gmail.com"
@@ -25,4 +29,8 @@ DIGEST_REPLY_TO = "info@mehyar.us"
 JOBS_APP_URL = "https://jobs.mehyar.us"
 
 [triggers]
-crons = ["*/15 * * * *"]
+# */15: scan batches. 30 10 / 30 11: the campaign brain at 06:30 ET daily —
+# 10:30 UTC during EDT (Mar-Nov), 11:30 UTC during EST (Nov-Mar). The brain
+# is idempotent (one campaign_plan row per date), and brainWindowOpen() keeps
+# the off-hour cron dormant, so the plan is written at ~06:30 ET, never 05:30.
+crons = ["*/15 * * * *", "30 10 * * *", "30 11 * * *"]

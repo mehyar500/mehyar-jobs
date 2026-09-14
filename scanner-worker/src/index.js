@@ -1,8 +1,17 @@
 import { ensureSchema } from "../../functions/_shared/db.js";
 import { scanCompanyBatch, syncContractJobs, syncSeedCompanies } from "../../functions/_shared/scan.js";
 import { deliverOldestCompletedDigest, ensureLegacyDigestForCompletedState } from "./dailyDigest.js";
+import { handleReview } from "./review.js";
+import { handleAtsMirror } from "./atsMirror.js";
+import { handleTailor, handleCoverLetter } from "./studio.js";
+import { handleChat } from "./chat.js";
+import { runCampaignBrain, brainWindowOpen } from "./campaignBrain.js";
 
 const STATE_NAME = "daily-company-scan";
+// Campaign-brain crons (06:30 ET daily: 10:30 UTC in EDT, 11:30 UTC in EST).
+// The brain is idempotent — one plan row per date — so only one fires usefully.
+const BRAIN_CRONS = new Set(["30 10 * * *", "30 11 * * *"]);
+
 const SOURCE_CLAIM_STALE_MINUTES = 30;
 const SOURCE_RETRY_MINUTES = 15;
 const MAX_BLOCKING_SOURCE_ATTEMPTS = 3;
@@ -10,10 +19,29 @@ const DEGRADED_SOURCE_RETRY_HOURS = 6;
 
 export default {
   async scheduled(controller, env) {
+    // Campaign brain: 06:30 ET daily plan. Idempotent — never double-plans.
+    // brainWindowOpen keeps the off-hour cron dormant (EDT vs EST).
+    if (BRAIN_CRONS.has(controller.cron || "")) {
+      if (brainWindowOpen()) await runCampaignBrain(env);
+      return;
+    }
     await runScheduledBatch(env, controller.cron || "cron");
   },
 
   async fetch(request, env) {
+    const url = new URL(request.url);
+    // LLM resume review endpoint (POST /review). The cron status stays on GET /.
+    if (url.pathname === "/review") return handleReview(request, env);
+    // ATS Mirror: deep ATS audit + rewritten resume (POST /ats-mirror). Optional auth.
+    if (url.pathname === "/ats-mirror") return handleAtsMirror(request, env);
+    // Manual rescan trigger (POST /scan). Admin only: syncs seed companies,
+    // resets today's scan state, and runs one scan batch immediately.
+    if (url.pathname === "/scan") return handleScanTrigger(request, env);
+    // Free-funnel AI studio (POST /tailor, POST /cover-letter). Optional auth.
+    if (url.pathname === "/tailor") return handleTailor(request, env);
+    if (url.pathname === "/cover-letter") return handleCoverLetter(request, env);
+    // AI job-search chat (POST /chat). Optional auth, rate-limited.
+    if (url.pathname === "/chat") return handleChat(request, env);
     if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
     await ensureSchema(env);
     const stateRow = await env.JOBS_DB.prepare("SELECT * FROM scan_scheduler_state WHERE name = ?").bind(STATE_NAME).first();
@@ -265,6 +293,34 @@ export function nextScanStartJobId(previousEndJobId, currentMaxJobId) {
 
 export function scanDayToRun(state, today) {
   return state?.scan_day && !state.completed_at ? state.scan_day : today;
+}
+
+// POST /scan — admin-only manual rescan trigger.
+async function handleScanTrigger(request, env) {
+  if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  const { requireUser } = await import("../../functions/_shared/userAuth.js");
+  const auth = await requireUser(request, env);
+  if (!auth.ok) return json({ ok: false, error: auth.message }, auth.status);
+  const user = auth.user || {};
+  const admin = user.is_admin === 1 || String(user.username || "").toLowerCase() === "mehyar500";
+  if (!admin) return json({ ok: false, error: "forbidden" }, 403);
+  await ensureSchema(env);
+  const db = env.JOBS_DB;
+  const seedResult = await syncSeedCompanies(db).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+  // Reset today's scan so the cron + this call start a fresh full pass.
+  const today = new Date().toISOString().slice(0, 10);
+  await db.prepare(`
+    UPDATE scan_scheduler_state
+    SET scan_day = ?, cursor = 0, completed_at = NULL, last_error = NULL, updated_at = datetime('now')
+    WHERE name = ?
+  `).bind(today, STATE_NAME).run().catch(() => null);
+  await db.prepare(`
+    UPDATE daily_job_digest
+    SET source_sync_status = 'pending', source_sync_error = NULL, updated_at = datetime('now')
+    WHERE scan_day = ?
+  `).bind(today).run().catch(() => null);
+  const batch = await runScheduledBatch(env, "manual").catch((e) => ({ ok: false, error: String(e?.message || e) }));
+  return json({ ok: true, seeds: seedResult, batch });
 }
 
 function sqliteNow() {

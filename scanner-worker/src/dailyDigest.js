@@ -1,4 +1,6 @@
 import { buildDailyJobsDigest, digestDisposition, loadDailyJobs, loadDailyScanStats } from "../../functions/_shared/dailyJobsDigest.js";
+import { deliverUserDigests } from "./userDigests.js";
+import { deliverJobAlerts } from "./alertDigests.js";
 
 const STALE_EMAIL_CLAIM_HOURS = 2;
 const MAX_EMAIL_CONTENT_BYTES = 20 * 1024 * 1024;
@@ -44,11 +46,63 @@ export async function deliverOldestCompletedDigest(env) {
     ORDER BY scan_day ASC
     LIMIT 1
   `).bind(`-${STALE_EMAIL_CLAIM_HOURS} hours`).first();
-  if (!candidate) return { ok: true, skipped: true, reason: "no_claimable_digest" };
+  if (!candidate) {
+    // No claimable owner digest (already sent, or none exists yet).
+    // Subscriber fan-out MUST still run here: it is keyed off
+    // user_digest_log — not the owner outbox — so this is also the path
+    // that retries failed subscriber sends after the owner's digest
+    // went out. Without this, subscribers would only ever be emailed on
+    // days the owner's digest was still pending.
+    const latest = await db.prepare(`
+      SELECT scan_day FROM daily_job_digest
+      WHERE scan_completed_at IS NOT NULL
+      ORDER BY scan_day DESC
+      LIMIT 1
+    `).first().catch(() => null);
+    if (!latest?.scan_day) return { ok: true, skipped: true, reason: "no_claimable_digest" };
+    let userDigests = null;
+    try {
+      userDigests = await deliverUserDigests(env, latest.scan_day);
+    } catch (e) {
+      console.error(JSON.stringify({ event: "user_digests_failed", scan_day: latest.scan_day, error: String(e?.message || e).slice(0, 300) }));
+      userDigests = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    }
+    let jobAlerts = null;
+    try {
+      jobAlerts = await deliverJobAlerts(env, latest.scan_day);
+    } catch (e) {
+      console.error(JSON.stringify({ event: "job_alerts_failed", scan_day: latest.scan_day, error: String(e?.message || e).slice(0, 300) }));
+      jobAlerts = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    }
+    return { ok: true, skipped: true, reason: "no_claimable_digest", user_digests: userDigests, job_alerts: jobAlerts };
+  }
   return deliverDailyDigest(env, candidate.scan_day);
 }
 
+// Subscriber fan-out runs independently of the owner's digest disposition:
+// even when the owner's digest is skipped (already sent) or fails,
+// newsletter subscribers still get their own matches. Best-effort —
+// a fan-out failure never fails the owner's digest outcome.
 export async function deliverDailyDigest(env, scanDay) {
+  const owner = await deliverOwnerDigest(env, scanDay);
+  let userDigests = null;
+  try {
+    userDigests = await deliverUserDigests(env, scanDay);
+  } catch (e) {
+    console.error(JSON.stringify({ event: "user_digests_failed", scan_day: scanDay, error: String(e?.message || e).slice(0, 300) }));
+    userDigests = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  let jobAlerts = null;
+  try {
+    jobAlerts = await deliverJobAlerts(env, scanDay);
+  } catch (e) {
+    console.error(JSON.stringify({ event: "job_alerts_failed", scan_day: scanDay, error: String(e?.message || e).slice(0, 300) }));
+    jobAlerts = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  return { ...owner, user_digests: userDigests, job_alerts: jobAlerts };
+}
+
+export async function deliverOwnerDigest(env, scanDay) {
   const db = env.JOBS_DB;
   const claim = await db.prepare(`
     UPDATE daily_job_digest
@@ -125,7 +179,10 @@ export async function deliverDailyDigest(env, scanDay) {
       content_bytes: contentBytes,
     };
     console.log(JSON.stringify({ event: "daily_job_digest_sent", ...outcome }));
-    return outcome;
+
+    // Subscriber fan-out is handled by the deliverDailyDigest wrapper,
+    // which runs it independently of the owner's digest disposition.
+    return { ...outcome };
   } catch (error) {
     const message = String(error?.message || error).slice(0, 1000);
     const failure = classifyEmailFailure(error, Number(digestRow?.email_attempts || 1));

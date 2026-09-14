@@ -4,12 +4,75 @@ import { extractSalary } from "./salary.js";
 import { loadProfile, scoreJob } from "./fit.js";
 
 const CONTRACT_QUERIES = [
+  // Software & tech (original set)
   "full stack engineer",
   "backend engineer",
   "platform engineer",
   "devops engineer",
   "AI engineer",
   "React TypeScript",
+  // Every other role family — the feed is queried per role, not filtered after
+  "data analyst",
+  "product manager",
+  "product designer",
+  "marketing manager",
+  "sales representative",
+  "account executive",
+  "customer support",
+  "customer success manager",
+  "accountant",
+  "financial analyst",
+  "hr generalist",
+  "recruiter",
+  "nurse",
+  "medical assistant",
+  "project manager",
+  "operations manager",
+  "content writer",
+  "copywriter",
+  "graphic designer",
+  "video editor",
+  // Healthcare roles
+  "physician assistant",
+  "pharmacist",
+  "physical therapist",
+  "dental hygienist",
+  "home health aide",
+  "medical biller",
+  // Skilled trades
+  "electrician",
+  "plumber",
+  "hvac technician",
+  "welder",
+  // Hospitality & food service
+  "line cook",
+  "server",
+  "bartender",
+  "hotel manager",
+  "housekeeper",
+  // Education
+  "teacher",
+  "teaching assistant",
+  // Legal
+  "paralegal",
+  "legal assistant",
+  // Logistics & driving
+  "warehouse associate",
+  "delivery driver",
+  "truck driver",
+  "dispatcher",
+  // Retail & frontline
+  "cashier",
+  "store manager",
+  "barista",
+  // Finance & admin
+  "bookkeeper",
+  "insurance agent",
+  "loan officer",
+  "real estate agent",
+  "administrative assistant",
+  "data entry",
+  "security guard",
 ];
 
 export async function syncSeedCompanies(db) {

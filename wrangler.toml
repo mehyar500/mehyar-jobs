@@ -21,6 +21,29 @@ MEHYARSOFT_ADMIN_USERNAME = "Mehyar500"
 # across deploys.
 NOTIFY_EMAIL = "mrswelim@gmail.com"
 FROM_EMAIL   = "mehyar.jobs <noreply@mehyar.us>"
+# From-addresses for the email growth engine (added 2026-09-13).
+# Values are PATCHed to runtime as plain_text via the API; the names are
+# declared here so the wrangler.toml [vars] allowlist persists them across
+# deploys (same pattern as NOTIFY_EMAIL).
+AGED_FROM_EMAIL  = "Mehyar Jobs <jobs@mehyar.us>"
+FRESH_FROM_EMAIL = "Mehyar Jobs <hello@mehyar.us>"
+# Fraction of the daily Fibonacci warm-up cap reserved for fresh legacy
+# contacts (default 0.5). Read by buildDailyList via LEGACY_RESERVE_FRAC;
+# override here or PATCH to runtime as plain_text to tune the mix.
+LEGACY_RESERVE_FRAC = "0.5"
+# Master live switch for the email growth engine. "1" = the sender may send
+# when the plan, seed-test, and fib gates all pass. Flip to "0" + deploy
+# to pause all campaign sending.
+EMAIL_LIVE = "1"
+# CAN-SPAM physical mailing address, printed in every campaign email
+# footer. Declared here (not PATCH-only) so it survives deploys.
+PHYSICAL_ADDRESS = "MehyarSoft LLC, 244 96th St Apt 1B, Brooklyn, NY 11209"
+# CAN-SPAM physical mailing address, printed in every campaign email
+# footer. PATCH to runtime as plain_text in the deploy dance (same
+# pattern as NOTIFY_EMAIL); until set, emails render the clearly-marked
+# placeholder in functions/_shared/emailFunnel.js — do NOT go live
+# without setting this. MAYOR_PHYSICAL_ADDRESS is accepted as an alias.
+# PHYSICAL_ADDRESS = "PHYSICAL ADDRESS PLACEHOLDER (set before sending)"
 # MESC_JWT_SECRET must match mehyar-web's value so we can verify its tokens
 # without sharing D1 / KV. (Real value is PATCHed to runtime as secret_text
 # in the deploy dance; left as a placeholder here so the var name is in

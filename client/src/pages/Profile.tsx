@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import ReferralCard from "../components/ReferralCard";
 import { useToast } from "../lib/toast";
 
 const DEFAULTS = {
@@ -74,6 +75,8 @@ export default function Profile() {
   const arrayToStr = (a: string[]) => (a || []).join(", ");
   const strToArray = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
+  const [extracting, setExtracting] = useState(false);
+
   const onResume = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -88,9 +91,22 @@ export default function Profile() {
       update("resume_filename", f.name);
       update("resume_mime", f.type || "application/pdf");
       update("resume_base64", base64);
-      toast.push({ kind: "success", title: "Resume loaded", message: `${f.name} (${(f.size / 1024).toFixed(0)}KB) — click Save to upload.` });
+      toast.push({ kind: "success", title: "Resume loaded", message: `${f.name} (${(f.size / 1024).toFixed(0)}KB) — extracting text…` });
     };
     reader.readAsDataURL(f);
+    // Extract the plain-text version server-side so fit scoring uses the
+    // real resume content (previously the text box stayed empty unless
+    // the user pasted it by hand, which made matches look random).
+    setExtracting(true);
+    try {
+      const out = await api.parseResume(f);
+      update("resume_text", out.text);
+      toast.push({ kind: "success", title: "Resume text extracted ✅", message: `${out.char_count.toLocaleString()} characters — click Save to upload.` });
+    } catch (err: any) {
+      toast.push({ kind: "error", title: "Couldn't read that file's text", message: (err?.message || "Try a .pdf, .docx, or .txt export.") + " The file itself is still attached — paste the text manually below." });
+    } finally {
+      setExtracting(false);
+    }
   };
 
   return (
@@ -127,7 +143,7 @@ export default function Profile() {
           ) : null}
         </div>
         <div style={{ marginTop: 10 }}>
-          <div className="xs dim" style={{ marginBottom: 4 }}>Plain-text version (used by the LLM when filling free-form questions):</div>
+          <div className="xs dim" style={{ marginBottom: 4 }}>Plain-text version (used by the LLM when filling free-form questions){extracting ? " — ⏳ extracting…" : ""}:</div>
           <textarea rows={6} placeholder="Paste your resume as plain text here, or upload the PDF above and we'll extract it…" value={form.resume_text} onChange={(e) => update("resume_text", e.target.value)} />
         </div>
       </Section>
@@ -279,6 +295,8 @@ export default function Profile() {
           </div>
         </div>
       </Section>
+
+      <ReferralCard />
 
       <div className="row" style={{ position: "sticky", bottom: 12, padding: "12px 0", background: "var(--bg)" }}>
         <button className="btn btn-primary" onClick={save} disabled={saving} data-testid="save-profile-btn">

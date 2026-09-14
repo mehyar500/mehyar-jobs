@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Route, Switch, Link, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { api, getToken, login, clearToken } from "./lib/api";
+import { Route, Switch } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { api, getToken, login, clearToken, getPrincipal } from "./lib/api";
 import { ToastProvider, useToast } from "./lib/toast";
+import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 import Jobs from "./pages/Jobs";
 import Companies from "./pages/Companies";
 import Profile from "./pages/Profile";
@@ -10,6 +12,21 @@ import About from "./pages/About";
 import Pipeline from "./pages/Pipeline";
 import Today from "./pages/Today";
 import { ApplicationsList, ApplicationDetail } from "./pages/Applications";
+import Landing from "./pages/Landing";
+import Signup from "./pages/Signup";
+import UserLogin from "./pages/UserLogin";
+import Run from "./pages/Run";
+import Matches from "./pages/Matches";
+import Review from "./pages/Review";
+import AtsMirror from "./pages/AtsMirror";
+import Studio from "./pages/Studio";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Unsubscribe from "./pages/Unsubscribe";
+import Advertise from "./pages/Advertise";
+import RecruiterMatch from "./pages/RecruiterMatch";
+import ChatWidget from "./components/ChatWidget";
+import MobileTabBar from "./components/MobileTabBar";
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -17,48 +34,7 @@ const qc = new QueryClient({
   },
 });
 
-const TABS = [
-  { key: "today",        label: "📅 Today",        href: "/" },
-  { key: "jobs",         label: "🎯 Jobs",         href: "/jobs" },
-  { key: "applications", label: "📤 Applications", href: "/applications" },
-  { key: "companies",    label: "🏢 Companies",    href: "/companies" },
-  { key: "pipeline",     label: "🧪 Pipeline",     href: "/pipeline" },
-  { key: "profile",      label: "🪪 Profile",      href: "/profile" },
-  { key: "about",        label: "ℹ️ How",          href: "/about" },
-];
-
-function Header({ loggedIn, principal, onLogout }: any) {
-  const [loc] = useLocation();
-  return (
-    <header className="border-b" style={{ borderColor: "var(--border)" }}>
-      <div className="container row" style={{ padding: "12px 16px" }}>
-        <Link href="/" className="h2 row" style={{ textDecoration: "none", color: "inherit" }}>
-          <span style={{ fontSize: 22 }}>🎯</span>
-          <span>mehyar.jobs</span>
-        </Link>
-        <span className="tag tag-violet sm" style={{ marginLeft: 8 }}>top 5,000 careers, fit-scored</span>
-        <div className="grow" />
-        <div className="row wrap">
-          {TABS.map((t) => (
-            <Link key={t.key} href={t.href} className={`tab ${loc === t.href || (t.href !== "/" && loc.startsWith(t.href)) ? "active" : ""}`}>
-              {t.label}
-            </Link>
-          ))}
-        </div>
-        <div className="row" style={{ marginLeft: 8 }}>
-          {loggedIn ? (
-            <>
-              <span className="sm dim">signed in as <strong>{principal?.sub || "admin"}</strong></span>
-              <button className="btn btn-ghost" onClick={onLogout}>logout</button>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
+function AdminLogin({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -81,10 +57,9 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   return (
     <div className="container" style={{ padding: "48px 16px", maxWidth: 460 }}>
       <div className="card">
-        <h1 className="h1">Sign in to mehyar.jobs</h1>
+        <h1 className="h1">Admin sign in</h1>
         <p className="sm muted" style={{ marginTop: 4 }}>
           Same username + password as <a href="https://mehyar.us/admin" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>mehyar.us/admin</a>.
-          We reuse your admin session across both apps.
         </p>
         <form onSubmit={submit} className="col" style={{ marginTop: 16, gap: 10 }}>
           <label className="col" style={{ gap: 4 }}>
@@ -100,63 +75,69 @@ function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             {busy ? "signing in…" : "Sign in"}
           </button>
         </form>
-        <hr />
-        <div className="sm muted">
-          Cross-app single sign-on: the JWT you receive is valid on both <code className="mono">mehyar.us</code> and <code className="mono">jobs.mehyar.us</code>.
-        </div>
       </div>
     </div>
   );
 }
 
-function Home() {
-  return <Today />;
-}
-
 function Shell() {
+  const [sessionKey, setSessionKey] = useState(0);
   const token = getToken();
-  const principal = JSON.parse(localStorage.getItem("mehyar_jobs_principal_v1") || "null");
-  const [isLoggedIn, setIsLoggedIn] = useState(!!token);
+  const principal = getPrincipal();
+  const session: "admin" | "user" | null = !token ? null : (String(principal?.sub || "").startsWith("user:") ? "user" : "admin");
   const toast = useToast();
 
   useEffect(() => {
     const onExpired = () => {
       clearToken();
-      setIsLoggedIn(false);
+      setSessionKey((k) => k + 1);
       toast.push({ kind: "error", title: "Session expired", message: "Please sign in again." });
     };
     window.addEventListener("mehyar:auth-expired", onExpired);
     return () => window.removeEventListener("mehyar:auth-expired", onExpired);
   }, []);
 
-  if (!isLoggedIn) {
-    return <Login onLoggedIn={() => setIsLoggedIn(true)} />;
-  }
+  const logout = () => { clearToken(); setSessionKey((k) => k + 1); };
 
   return (
-    <>
-      <Header
-        loggedIn
-        principal={principal}
-        onLogout={() => { clearToken(); setIsLoggedIn(false); }}
-      />
+    <div key={sessionKey}>
+      <Navbar principal={principal} session={session} onLogout={logout} />
       <main className="container" style={{ padding: "16px" }}>
         <Switch>
-          <Route path="/" component={Home} />
-          <Route path="/jobs" component={Jobs} />
-          <Route path="/companies" component={Companies} />
-          <Route path="/applications" component={ApplicationsList} />
-          <Route path="/applications/:id" component={ApplicationDetail} />
-          <Route path="/profile" component={Profile} />
-          <Route path="/pipeline" component={Pipeline} />
+          {/* Public */}
+          <Route path="/" component={session === "admin" ? Today : Landing} />
+          <Route path="/signup" component={Signup} />
+          <Route path="/login" component={session === "admin" ? Today : UserLogin} />
+          <Route path="/run" component={Run} />
+          <Route path="/matches" component={Matches} />
+          <Route path="/review" component={Review} />
+          <Route path="/ats-mirror" component={AtsMirror} />
+          <Route path="/studio" component={Studio} />
           <Route path="/about" component={About} />
-          <Route><div className="card"><h2 className="h2">404</h2></div></Route>
+          <Route path="/terms" component={Terms} />
+          <Route path="/privacy" component={Privacy} />
+          <Route path="/unsubscribe" component={Unsubscribe} />
+          <Route path="/advertise" component={Advertise} />
+          <Route path="/recruiter-match" component={RecruiterMatch} />
+          <Route path="/admin"><AdminLogin onLoggedIn={() => setSessionKey((k) => k + 1)} /></Route>
+          {/* Admin only */}
+          {session === "admin" && (
+            <>
+              <Route path="/jobs" component={Jobs} />
+              <Route path="/companies" component={Companies} />
+              <Route path="/applications" component={ApplicationsList} />
+              <Route path="/applications/:id" component={ApplicationDetail} />
+              <Route path="/profile" component={Profile} />
+              <Route path="/pipeline" component={Pipeline} />
+            </>
+          )}
+          <Route><div className="card"><h2 className="h2">404</h2><p className="sm muted">That page doesn't exist.</p></div></Route>
         </Switch>
       </main>
-      <footer className="container sm muted" style={{ padding: "24px 16px" }}>
-        Owned by <a href="https://mehyar.us" style={{ color: "var(--accent)" }}>mehyar.us</a> · Zero API keys · Daily scan of public career pages.
-      </footer>
-    </>
+      <Footer session={session} />
+      <MobileTabBar session={session} />
+      <ChatWidget />
+    </div>
   );
 }
 
