@@ -16,6 +16,13 @@ export default function Footer({ session }: { session: "admin" | "user" | null }
           </div>
           <div className="row" style={{ gap: 32, flexWrap: "wrap" }}>
             <div className="col" style={{ gap: 6 }}>
+              <strong className="sm">Our products</strong>
+              <a href="https://mehyar.us" className="sm muted">mehyar.us — software studio</a>
+              <a href="https://aimech.app" className="sm muted">aimech.app — AI car diagnostics</a>
+              <a href="https://rizza.app" className="sm muted">rizza.app — AI dating wingman</a>
+              <a href="mailto:info@mehyar.us" className="sm muted">Contact: info@mehyar.us</a>
+            </div>
+            <div className="col" style={{ gap: 6 }}>
               <strong className="sm">Product</strong>
               <Link href="/" className="sm muted">Browse jobs</Link>
               <Link href="/review" className="sm muted">AI resume review</Link>

@@ -13,6 +13,7 @@ export async function onRequestGet() {
     "Disallow: /applications",
     "Disallow: /pipeline",
     "Disallow: /profile",
+    "Disallow: /unsubscribe?token=", // signed one-click tokens are private
     "",
     `Sitemap: ${APP_URL}/sitemap.xml`,
     "",

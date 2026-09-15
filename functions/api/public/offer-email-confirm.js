@@ -2,6 +2,7 @@
 
 import { ensureSchema } from "../../_shared/db.js";
 import { pageChrome, APP_URL } from "../../_shared/seo.js";
+import { ensureEmailContact } from "../../_shared/landing.js";
 
 export async function onRequestGet({ env, request }) {
   const url = new URL(request.url);
@@ -10,7 +11,7 @@ export async function onRequestGet({ env, request }) {
   const db = env?.JOBS_DB;
 
   const row = token && db
-    ? await db.prepare("SELECT id, email, status FROM newsletter_subscriber WHERE confirm_token = ?")
+    ? await db.prepare("SELECT id, email, brand, status FROM newsletter_subscriber WHERE confirm_token = ?")
       .bind(token).first().catch(() => null)
     : null;
 
@@ -21,6 +22,10 @@ export async function onRequestGet({ env, request }) {
   }
   await db.prepare("UPDATE newsletter_subscriber SET status = 'confirmed', confirmed_at = datetime('now'), confirm_token = NULL WHERE id = ?")
     .bind(row.id).run().catch(() => {});
+  // Central signup store: every confirmed signup flows into the shared funnel
+  // contact table (per-brand), so all signups across every product are
+  // queryable in one place and the address becomes eligible for sends.
+  await ensureEmailContact(db, row.email, row.brand || "mehyar.jobs").catch(() => {});
   const html = pageChrome({ title: "You're in — mehyar.jobs", noindex: true,
     body: `<h1>✅ You're in</h1><p>Daily job alerts are heading to <b>${row.email.replace(/</g, "&lt;")}</b>.</p><p class="muted">One-click unsubscribe in every email.</p><a class="btn" href="${APP_URL}/">Browse 7,000+ jobs →</a>` });
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });

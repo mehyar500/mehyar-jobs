@@ -132,11 +132,13 @@ export default function Landing() {
       <section className="hero">
         <div className="hero-inner">
           <div className="hero-badge">✨ Free forever · No credit card · Every industry</div>
-          <h1>Every job.<br />Matched to <span className="grad">you</span>.</h1>
+          <h1>AI job matching.<br />Every job, fit-scored for <span className="grad">you</span>.</h1>
           <p className="lead">
             We scan thousands of public job postings every day — nurses, drivers, developers,
-            designers, accountants, and everything in between. Upload your resume once and our
-            engine scores every posting against your background.
+            designers, accountants, and everything in between — across Fortune 500, Forbes Global 2000,
+            Inc 5000, and S&amp;P 500 career pages. Upload your resume once and our engine scores every
+            posting against your background, then delivers your fit-scored careers as daily Fortune 500
+            job alerts.
           </p>
           <div className="hero-cta">
             <Link href="/ats-mirror"><button className="btn btn-primary">🪞 Mirror my resume — free</button></Link>
@@ -208,7 +210,7 @@ export default function Landing() {
             { icon: "🪞", title: "ATS Mirror", desc: "See your resume the way the robots see it. 9-dimension audit + rewritten ATS-safe version.", href: "/ats-mirror", tag: "NEW" },
             { icon: "🎯", title: "Resume Studio", desc: "Tailor your resume to any role and draft a cover letter in seconds.", href: "/studio", tag: "FREE" },
             { icon: "🤖", title: "AI Resume Review", desc: "A 0–100 hireability score with honest strengths, gaps, and fixes.", href: "/review", tag: "FREE" },
-            { icon: "🔔", title: "Job Alerts", desc: "New matches in your inbox daily. One-click unsubscribe, always.", href: "/signup", tag: "FREE" },
+            { icon: "🔔", title: "Job Alerts", desc: "Fortune 500 job alerts in your inbox daily — new matches scored against your resume. One-click unsubscribe, always.", href: "/signup", tag: "FREE" },
             { icon: "💬", title: "AI Job Chat", desc: "Ask for jobs in plain English. The AI searches live postings and scores the fit.", href: "/signup", tag: "FREE" },
           ].map((t) => (
             <Link key={t.title} href={t.href} style={{ textDecoration: "none", color: "inherit" }}>
@@ -309,6 +311,24 @@ export default function Landing() {
           Fresh postings in your inbox every morning. Free forever, one-click unsubscribe in every email.
         </p>
         <SubscribeBox />
+      </section>
+
+      {/* ── FAQ (semantic, quotable by AI crawlers) ── */}
+      <section className="col" style={{ gap: 12, maxWidth: 720, margin: "0 auto", width: "100%" }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0, textAlign: "center" }}>Questions, answered</h2>
+        {[
+          { q: "What is mehyar.jobs?", a: "A free AI job matching service. We scan Fortune 500, Forbes Global 2000, Inc 5000, and S&P 500 career pages every day and score each posting against your resume, so your best fits surface first." },
+          { q: "How does the fit scoring work?", a: "Upload your resume once. Our engine compares every new posting against your skills, titles, and experience, ranks matches with a fit score, and sends your daily Fortune 500 job alerts each morning." },
+          { q: "Is it really free?", a: "Yes — browsing, fit-scored careers, daily job alerts, the ATS Mirror audit, and Resume Studio are all free. No credit card, ever." },
+          { q: "What is the ATS Mirror?", a: "A free tool that shows your resume the way applicant tracking systems see it: a 0–100 ATS-readiness score across 9 dimensions, every fix explained, plus a rewritten ATS-safe version you can download." },
+          { q: "How do I unsubscribe from job alerts?", a: "Every email has a one-click unsubscribe link in the footer. You can also unsubscribe anytime at /unsubscribe — no login needed, honored instantly." },
+          { q: "Which companies are covered?", a: "Thousands of employers across every industry: Fortune 500 and S&P 500 public companies, Forbes Global 2000 firms, and high-growth Inc 5000 companies." },
+        ].map((f) => (
+          <div key={f.q} className="card card-tight" style={{ textAlign: "left" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 6px" }}>{f.q}</h3>
+            <p className="sm muted" style={{ margin: 0 }}>{f.a}</p>
+          </div>
+        ))}
       </section>
 
       {/* ── CTA ── */}

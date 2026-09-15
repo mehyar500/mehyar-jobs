@@ -1,0 +1,43 @@
+# mehyar.jobs
+
+> AI job matching with fit-scored careers. Free forever, no credit card.
+
+mehyar.jobs (https://jobs.mehyar.us/) is a free job discovery service owned by
+mehyar.us. Every day it scans public career pages across Fortune 500, Forbes
+Global 2000, Inc 5000, and S&P 500 companies — thousands of employers in every
+industry: nurses, drivers, developers, designers, accountants, and more.
+
+## How it works
+
+1. **Browse or sign up free** at https://jobs.mehyar.us/ — no account needed to browse.
+2. **Upload your resume once.** The AI matching engine scores every posting
+   against your skills, titles, and experience and ranks your best fits first.
+3. **Get Fortune 500 job alerts daily.** New matches land in your inbox every
+   morning. Every email has one-click unsubscribe.
+4. **Free toolkit:** ATS Mirror (see your resume the way applicant tracking
+   systems see it — a 0–100 readiness score across 9 dimensions plus a rewritten
+   ATS-safe version), Resume Studio (tailor your resume to any role), and AI
+   resume review (0–100 hireability score).
+
+## Key URLs
+
+- Home / browse jobs: https://jobs.mehyar.us/
+- Free ATS resume audit: https://jobs.mehyar.us/ats-mirror
+- AI resume review: https://jobs.mehyar.us/review
+- Sign up free: https://jobs.mehyar.us/signup
+- Unsubscribe (no login needed): https://jobs.mehyar.us/unsubscribe
+- About: https://jobs.mehyar.us/about
+- Advertise / feature a job: https://jobs.mehyar.us/advertise
+
+## Contact & company
+
+- Owner: mehyar.us (https://mehyar.us)
+- Contact: info@mehyar.us
+- Privacy: https://jobs.mehyar.us/privacy
+- Terms: https://jobs.mehyar.us/terms
+
+## Email policy
+
+All marketing emails are double opt-in and carry a one-click unsubscribe link
+plus a physical mailing address (CAN-SPAM compliant). Unsubscribes are honored
+instantly per brand.
