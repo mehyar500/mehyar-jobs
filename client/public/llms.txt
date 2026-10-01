@@ -1,0 +1,36 @@
+# mehyar.jobs
+
+mehyar.jobs (https://jobs.mehyar.us/) is a free AI job-matching service by MehyarSoft LLC. Every day it scans public career pages across Fortune 500, Forbes Global 2000, Inc 5000, and S&P 500 companies — thousands of employers in every industry. Upload your resume once and the engine fit-scores every posting against your skills, titles, and experience, ranking your best matches first. Free toolkit: ATS Mirror (0–100 ATS-readiness audit of your resume), Resume Studio (tailor a resume to any role), and AI resume review (0–100 hireability score).
+
+## Key pages
+
+- / — landing page and job browsing (no account needed to browse)
+- /signup — create a free account
+- /login — log in
+- /ats-mirror — free ATS resume audit
+- /review — AI resume review
+- /studio — free Resume Studio
+- /about — how the service works
+- /advertise — employers: feature a job to matched candidates
+- /recruiter-match — opt in to recruiter matching
+- /unsubscribe — one-click unsubscribe, no login needed
+- /privacy — privacy policy
+- /terms — terms of service
+- /job/<id>-<slug> — individual job detail pages (server-rendered, crawler-friendly)
+- /jobs/browse — browse live jobs by title and city
+
+## Pricing
+
+Free for job seekers, always. Browsing, fit-scored matches, daily job alerts, the ATS Mirror audit, Resume Studio, and AI resume review are all free — no credit card required. Employers and advertisers pay to feature jobs (see /advertise); that keeps the service free.
+
+## API
+
+Public, no-auth endpoints:
+- GET /api/public/stats — public stats: companies tracked, active jobs, jobs posted today, industry breakdown
+- GET /api/public/health — health probe
+- POST /api/public/free-run — one free anonymous resume check per visitor (IP-hashed)
+- POST /api/public/parse-resume — parse an uploaded resume into a candidate profile
+
+## Compliance
+
+mehyar.jobs is a job-discovery and resume-analysis tool. It does not claim to guarantee interviews, job offers, or employment outcomes — fit scores and ATS scores are estimates, not promises of hiring success. Listings are aggregated from public employer career pages; always verify details and apply through the original posting. Marketing emails are double opt-in with one-click unsubscribe and a physical mailing address (CAN-SPAM compliant).

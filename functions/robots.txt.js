@@ -1,9 +1,10 @@
-// GET /robots.txt — crawlers welcome on SEO surfaces; keep API + admin out.
+// GET /robots.txt — crawlers welcome on SEO surfaces; keep API + admin/app paths out.
 import { APP_URL } from "./_shared/seo.js";
 
 export async function onRequestGet() {
   const body = [
     "User-agent: *",
+    "Allow: /",
     "Allow: /job/",
     "Allow: /jobs/",
     "Allow: /roast/",
@@ -11,8 +12,10 @@ export async function onRequestGet() {
     "Disallow: /api/",
     "Disallow: /admin",
     "Disallow: /applications",
+    "Disallow: /companies",
     "Disallow: /pipeline",
     "Disallow: /profile",
+    "Disallow: /unsubscribe?token=", // signed one-click tokens are private
     "",
     `Sitemap: ${APP_URL}/sitemap.xml`,
     "",

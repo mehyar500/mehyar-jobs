@@ -173,6 +173,7 @@ RULES:
 - tool-spotlight (5) promotes our own FREE tools (ATS Mirror resume scanner, Resume Studio, AI resume review, job alerts) — never an affiliate product. It is the launch vehicle: weight it high (0.20+) when the list is mostly fresh/pending or when we have a new tool to announce, because "we built this free thing for you" is the strongest repermission hook we have. NOTE: the send path forces legacy/pending contacts onto repermission(3)/tool-spotlight(5) regardless of these weights — so during the launch phase, a high weight on 3 and 5 is honest and safe.
 - product_override_slug: pick a slug from eligible_products, or null for the deterministic rotation. Prefer products with low recent clicks (they deserve another shot) but respect that last_featured_on + cooldown_days is enforced server-side — a violating pick is rejected and replaced by the rotation, so do not re-pick a product inside its cooldown window.
 - subject_tweaks: 0-4 new subject lines for any skeletons. Each must match its skeleton, contain no "!" and no word "free" (any case), max 120 chars. Never invent a recipient name. Skeleton 5 subjects must match the tool-spotlight voice (a free tool we built, not a product pitch).
+  SUBJECT QUALITY IS AN INBOXING WEAPON. Bad subjects ("New job opportunities", "Repermission reminder", "Your daily job match") read as spam to both humans and filters. Every subject must sound like a real person typed it on their phone: specific, concrete, curious — reference the actual tool, a real number from the inputs, or a concrete question. Examples of the bar: "I built a tool that reads resumes like a robot", "One resume per role type beats one for everything". Never use spam-trigger phrasing: "opportunities", "reminder", "alert", "don't miss", "act now", "limited time".
 - segment_focus: "engaged_first" when opens/clicks are healthy; "winback_heavy" when at_risk is large; "repermission_heavy" when the list is mostly fresh/pending; "balanced" otherwise.
 - reasoning: 2-4 sentences, plain English, citing the actual input numbers. If provider_yesterday is null, say provider stats were unavailable.
 - Output JSON only. No commentary.`;
@@ -197,10 +198,13 @@ async function planWithLlm(env, inputs) {
   return plan;
 }
 
-/** Deterministic plan used when the LLM is unavailable or invalid. Always valid. */
+/** Deterministic plan used when the LLM is unavailable or invalid. Always valid.
+ *  Launch-leaning: while the list is mostly fresh/pending, repermission (3)
+ *  and tool-spotlight (5) carry the mix — the send path forces legacy
+ *  contacts onto 3/5 anyway, so this fallback stays honest in both phases. */
 export function deterministicFallbackPlan() {
   return {
-    skeleton_weights: { 0: 0.15, 1: 0.5, 2: 0.1, 3: 0.1, 4: 0.1, 5: 0.05 },
+    skeleton_weights: { 0: 0.1, 1: 0.3, 2: 0.1, 3: 0.2, 4: 0.1, 5: 0.2 },
     product_override_slug: null,
     subject_tweaks: [],
     segment_focus: "balanced",

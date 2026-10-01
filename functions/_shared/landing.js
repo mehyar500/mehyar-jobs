@@ -158,13 +158,14 @@ export async function landingStatsForDate(db, dateStr) {
 }
 
 // ── contacts: find-or-create, preferences, graduation ────────────────
-export async function ensureEmailContact(db, email) {
+export async function ensureEmailContact(db, email, brand = "mehyar.jobs") {
   const em = String(email || "").trim().toLowerCase();
+  const br = String(brand || "mehyar.jobs").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) throw new Error("bad_email");
   await db.prepare(
-    "INSERT OR IGNORE INTO email_contact (email, status, source) VALUES (?, 'pending', 'web')"
-  ).bind(em).run();
-  return db.prepare("SELECT * FROM email_contact WHERE email = ?").bind(em).first();
+    "INSERT OR IGNORE INTO email_contact (email, brand, status, source) VALUES (?, ?, 'pending', 'web')"
+  ).bind(em, br).run();
+  return db.prepare("SELECT * FROM email_contact WHERE email = ? AND brand = ?").bind(em, br).first();
 }
 
 export async function getContactPreference(db, contactId) {

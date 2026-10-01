@@ -60,7 +60,7 @@ async function actionStatus(db, env) {
     db.prepare("SELECT level, status, updated_at FROM fib_gate WHERE id = 1").first().catch(() => null),
     db.prepare("SELECT plan_json, reasoning_text, created_at, model FROM campaign_plan WHERE plan_date = ?").bind(today).first().catch(() => null),
     db.prepare("SELECT template, inbox_pct, spam_pct, tested_at FROM seed_test ORDER BY id DESC LIMIT 1").first().catch(() => null),
-    db.prepare("SELECT source, status, COUNT(*) AS n FROM email_contact GROUP BY source, status").all().then((r) => r.results || []).catch(() => []),
+    db.prepare("SELECT brand, source, status, COUNT(*) AS n FROM email_contact GROUP BY brand, source, status").all().then((r) => r.results || []).catch(() => []),
     db.prepare("SELECT COUNT(*) AS n FROM email_contact WHERE status = 'pending'").first().then((r) => r?.n || 0).catch(() => 0),
   ]);
 
@@ -74,6 +74,14 @@ async function actionStatus(db, env) {
 
   const report = await buildCampaignReport(db, today, {}).catch(() => null);
 
+  // Per-brand rollup from the brand-segmented cohort rows.
+  const byBrand = {};
+  for (const r of cohortRows) {
+    const b = (byBrand[r.brand] ||= { brand: r.brand, total: 0, by_status: {} });
+    b.by_status[r.status] = (b.by_status[r.status] || 0) + r.n;
+    b.total += r.n;
+  }
+
   return {
     ok: true,
     date: today,
@@ -83,15 +91,16 @@ async function actionStatus(db, env) {
     fib_gate: gate ? { level: gate.level, status: gate.status, updated_at: gate.updated_at } : null,
     plan,
     seed_test: seedRow || null,
-    cohort: { pending: pendingCount, by_source_status: cohortRows },
+    cohort: { pending: pendingCount, by_source_status: cohortRows, by_brand: byBrand },
     today: report ? {
-      sends: report.sends ?? 0,
-      by_status: report.sendsByStatus || report.by_status || {},
-      opens: report.opens ?? 0,
-      clicks: report.clicks ?? 0,
-      bounces: (report.hardBounces ?? 0) + (report.softBounces ?? 0),
-      complaints: report.complaints ?? 0,
-      unsubscribes: report.unsubscribes ?? 0,
+      sends: report.summary?.sends ?? 0,
+      by_status: report.summary?.sends_by_status || {},
+      by_brand: report.summary?.by_brand || {},
+      opens: report.summary?.opens ?? 0,
+      clicks: report.summary?.clicks ?? 0,
+      bounces: (report.summary?.hard_bounces ?? 0) + (report.summary?.soft_bounces ?? 0),
+      complaints: report.summary?.complaints ?? 0,
+      unsubscribes: report.summary?.unsubscribes ?? 0,
     } : null,
   };
 }
@@ -115,7 +124,8 @@ async function actionSend(db, env, body) {
 
   const res = await queueDailySends(db, env, {
     live: true, kind, now: new Date(), appUrl: "https://jobs.mehyar.us",
-    signUnsub: (email, e) => signUnsubscribeToken(email, e),
+    brand: String(body.brand || "mehyar.jobs").trim().toLowerCase(),
+    signUnsub: (email, e, brand) => signUnsubscribeToken(email, e, brand),
   });
   return { ok: res.ok, kind, live: true, ...res };
 }
@@ -123,6 +133,28 @@ async function actionSend(db, env, body) {
 async function actionPause(db) {
   await db.prepare("UPDATE fib_gate SET status = 'paused', updated_at = datetime('now') WHERE id = 1").run().catch(() => null);
   return { ok: true, paused: true };
+}
+
+// Mint signed one-click unsubscribe tokens for a batch of emails, server-side
+// (the signing secret never leaves the worker). Used by the warmup sender so
+// every warmup email carries a working brand-aware unsubscribe link.
+async function actionMintUnsubTokens(env, body) {
+  const brand = String(body.brand || "mehyar.jobs").trim().toLowerCase();
+  const emails = Array.isArray(body.emails) ? body.emails : [];
+  if (emails.length === 0 || emails.length > 500) {
+    return { ok: false, error: "bad_emails", hint: "provide 1-500 emails" };
+  }
+  const tokens = {};
+  for (const raw of emails) {
+    const email = String(raw || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) continue;
+    try {
+      tokens[email] = await signUnsubscribeToken(email, env, brand);
+    } catch (e) {
+      return { ok: false, error: "mint_failed", detail: String(e?.message || e) };
+    }
+  }
+  return { ok: true, brand, count: Object.keys(tokens).length, tokens };
 }
 
 export async function onRequest({ request, env }) {
@@ -155,7 +187,8 @@ export async function onRequest({ request, env }) {
       return json(r, r.ok ? 200 : 409);
     }
     if (action === "pause") return json(await actionPause(db));
-    return json({ ok: false, error: "unknown_action", actions: ["status", "readiness", "send", "pause"] }, 400);
+    if (action === "mint_unsub_tokens") return json(await actionMintUnsubTokens(env, body));
+    return json({ ok: false, error: "unknown_action", actions: ["status", "readiness", "send", "pause", "mint_unsub_tokens"] }, 400);
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }

@@ -41,7 +41,8 @@
     "test:campaign-brain": "node scripts/test-campaign-brain.mjs",
     "test:genius-flow": "node scripts/test-genius-flow-skeletons.mjs",
     "test:compliance": "node scripts/test-compliance.mjs",
-    "test:landing-rotation": "node scripts/test-landing-rotation.mjs"
+    "test:landing-rotation": "node scripts/test-landing-rotation.mjs",
+    "test:ats-mirror": "node scripts/test-ats-mirror.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240919.0",

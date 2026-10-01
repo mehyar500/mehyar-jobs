@@ -49,7 +49,17 @@ async function checkSmtp2go(env) {
   }
 }
 
-async function checkBrevo(env) {
+async function checkBrevo(db, env) {
+  // Brevo serves the fresh (non-legacy) stream only — legacy contacts send via
+  // SMTP2GO (see providerFor in emailFunnel.js). Requiring Brevo when no fresh
+  // contacts are pending would block legacy sends on an uninvolved provider.
+  // The check stays hard whenever the fresh stream has anyone to send to.
+  const r = await db.prepare(
+    "SELECT COUNT(*) AS n FROM email_contact WHERE status = 'pending' AND source != 'legacy'"
+  ).first().catch(() => ({ n: 0 }));
+  if (!r || r.n === 0) {
+    return { key: "brevo_api", label: "Brevo API", ok: true, detail: "not required — no pending non-legacy contacts" };
+  }
   const key = env.BREVO_API_KEY || "";
   if (!key) return fail("brevo_api", "BREVO_API_KEY missing");
   try {
@@ -142,7 +152,7 @@ function fail(key, detail) {
 export async function runReadinessChecks(db, env) {
   const checks = await Promise.all([
     checkSmtp2go(env),
-    checkBrevo(env),
+    checkBrevo(db, env),
     checkFibGate(db),
     checkSeedTest(db),
     checkSuppression(db),

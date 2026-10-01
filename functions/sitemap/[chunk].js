@@ -52,7 +52,23 @@ export async function onRequestGet({ env, params }) {
       ORDER BY n DESC LIMIT 2000
     `).all().catch(() => ({ results: [] }));
     const seen = new Set();
-    const urls = [{ loc: `${APP_URL}/jobs/browse`, changefreq: "daily" }];
+    // Static public pages (landing, marketing, legal). lastmod = deploy date.
+    const today = new Date().toISOString().slice(0, 10);
+    const urls = [
+      { loc: `${APP_URL}/`, lastmod: today, changefreq: "weekly" },
+      { loc: `${APP_URL}/signup`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/login`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/about`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/privacy`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/terms`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/ats-mirror`, lastmod: today, changefreq: "weekly" },
+      { loc: `${APP_URL}/review`, lastmod: today, changefreq: "weekly" },
+      { loc: `${APP_URL}/studio`, lastmod: today, changefreq: "weekly" },
+      { loc: `${APP_URL}/advertise`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/recruiter-match`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/unsubscribe`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/jobs/browse`, changefreq: "daily" },
+    ];
     for (const r of (rows.results || [])) {
       const t = slugify(r.t);
       const c = slugify(r.loc);

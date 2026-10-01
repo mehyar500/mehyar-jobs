@@ -22,9 +22,10 @@ export async function onRequestPost({ request, env }) {
   const email = String(body.email || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return json({ ok: false, error: "bad_email" }, 400, request, env);
   const source = String(body.source || "offer_page").slice(0, 32);
+  const brand = String(body.brand || "mehyar.jobs").trim().toLowerCase().slice(0, 32);
 
-  const existing = await db.prepare("SELECT id, status FROM newsletter_subscriber WHERE email = ?")
-    .bind(email).first().catch(() => null);
+  const existing = await db.prepare("SELECT id, status FROM newsletter_subscriber WHERE email = ? AND brand = ?")
+    .bind(email, brand).first().catch(() => null);
   if (existing?.status === "confirmed") return json({ ok: true, already: true }, 200, request, env);
 
   const token = mintPublicId("nl");
@@ -32,8 +33,8 @@ export async function onRequestPost({ request, env }) {
     await db.prepare("UPDATE newsletter_subscriber SET status = 'pending', confirm_token = ?, source = ? WHERE id = ?")
       .bind(token, source, existing.id).run().catch(() => {});
   } else {
-    await db.prepare("INSERT INTO newsletter_subscriber (email, status, source, confirm_token) VALUES (?, 'pending', ?, ?)")
-      .bind(email, source, token).run().catch(() => {});
+    await db.prepare("INSERT INTO newsletter_subscriber (email, brand, status, source, confirm_token) VALUES (?, ?, 'pending', ?, ?)")
+      .bind(email, brand, source, token).run().catch(() => {});
   }
 
   const confirmUrl = `${APP_URL}/api/public/offer-email-confirm?token=${encodeURIComponent(token)}`;

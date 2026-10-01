@@ -177,11 +177,12 @@ export async function verifyAlertToken(token, env) {
 // ── newsletter unsubscribe tokens ────────────────────────────────────
 // One-click unsubscribe links for digest/welcome emails. Signed with the
 // same HMAC secret as session tokens; no login required to use one.
-export async function signUnsubscribeToken(email, env) {
+export async function signUnsubscribeToken(email, env, brand = "mehyar.jobs") {
   const secret = getSecret(env);
   if (!secret) throw new Error("auth_not_configured");
   const em = String(email || "").trim().toLowerCase();
-  const payload = b64urlEncodeBytes(new TextEncoder().encode(JSON.stringify({ em })));
+  const br = String(brand || "mehyar.jobs").trim().toLowerCase();
+  const payload = b64urlEncodeBytes(new TextEncoder().encode(JSON.stringify({ em, br })));
   const sig = await hmacSign(secret, `unsub:${payload}`);
   return `${payload}.${sig}`;
 }
@@ -196,7 +197,10 @@ export async function verifyUnsubscribeToken(token, env) {
     if (!safeEq(sig, expect)) return null;
     const data = JSON.parse(new TextDecoder().decode(b64urlDecodeToBytes(payload)));
     const em = String(data?.em || "").trim().toLowerCase();
-    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em) ? em : null;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) return null;
+    // Legacy tokens carry no brand -> null means "all brands".
+    const br = String(data?.br || "").trim().toLowerCase() || null;
+    return { email: em, brand: br };
   } catch { return null; }
 }
 

@@ -68,9 +68,15 @@ function sh(cmd, env = {}) {
   return execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: "621600637337cc1c9ecb7095508bc732", ...env } });
 }
+function stripProxyBanner(out) {
+  // Sandbox egress proxy prints a banner line to stdout ahead of the JSON
+  // payload (wr.py). Trim everything before the first { or [ so JSON.parse works.
+  const i = out.search(/[{\[]/);
+  return i > 0 ? out.slice(i) : out;
+}
 function d1json(sql) {
   const out = sh(`${D1} --command ${JSON.stringify(sql)} --json`);
-  const parsed = JSON.parse(out);
+  const parsed = JSON.parse(stripProxyBanner(out));
   const res = Array.isArray(parsed) ? parsed[0] : parsed;
   return res?.results ?? [];
 }
@@ -80,7 +86,7 @@ const { start, end } = etBounds(day);
 let provider = { sends: 0, bouncePct: 0, complaintPct: 0, unsubPct: 0, note: "" };
 try {
   const raw = sh(`${SMTP2GO} call stats/email_history ${JSON.stringify(JSON.stringify({ start_date: start, end_date: end }))}`);
-  const data = JSON.parse(raw)?.envelope?.data || {};
+  const data = JSON.parse(stripProxyBanner(raw))?.envelope?.data || {};
   provider = {
     sends: data.count ?? 0,
     bouncePct: data.bounce_percent_total ?? 0,

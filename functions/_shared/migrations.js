@@ -864,7 +864,8 @@ export const MIGRATION_0017 = `-- 0017_email_warmup.sql
 -- ── EMAIL CONTACTS ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS email_contact (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  email              TEXT NOT NULL UNIQUE,
+  email              TEXT NOT NULL,
+  brand              TEXT NOT NULL DEFAULT 'mehyar.jobs',
   status             TEXT NOT NULL DEFAULT 'pending',
   source             TEXT NOT NULL DEFAULT 'legacy',
   first_name         TEXT,
@@ -880,9 +881,11 @@ CREATE TABLE IF NOT EXISTS email_contact (
   week_sent_count    INTEGER NOT NULL DEFAULT 0,
   week_start         TEXT,
   imported_at        TEXT NOT NULL DEFAULT (datetime('now')),
-  created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(email, brand)
 );
 CREATE INDEX IF NOT EXISTS idx_email_contact_status   ON email_contact(status);
+CREATE INDEX IF NOT EXISTS idx_email_contact_brand_status ON email_contact(brand, status);
 CREATE INDEX IF NOT EXISTS idx_email_contact_provider ON email_contact(provider);
 CREATE INDEX IF NOT EXISTS idx_email_contact_imported ON email_contact(imported_at DESC);
 
@@ -907,6 +910,7 @@ CREATE INDEX IF NOT EXISTS idx_engagement_band ON contact_engagement(engagement_
 CREATE TABLE IF NOT EXISTS email_send (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   contact_id    INTEGER NOT NULL REFERENCES email_contact(id) ON DELETE CASCADE,
+  brand         TEXT NOT NULL DEFAULT 'mehyar.jobs',
   kind          TEXT NOT NULL,
   template      TEXT NOT NULL DEFAULT 'daily_digest',
   variant       TEXT NOT NULL DEFAULT 'standard',
@@ -920,11 +924,13 @@ CREATE TABLE IF NOT EXISTS email_send (
 );
 CREATE INDEX IF NOT EXISTS idx_email_send_contact ON email_send(contact_id);
 CREATE INDEX IF NOT EXISTS idx_email_send_status ON email_send(status);
+CREATE INDEX IF NOT EXISTS idx_email_send_brand ON email_send(brand, status);
 
 -- ── WEBHOOK EVENTS ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS email_event (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   contact_id  INTEGER NOT NULL REFERENCES email_contact(id) ON DELETE CASCADE,
+  brand       TEXT NOT NULL DEFAULT 'mehyar.jobs',
   kind        TEXT NOT NULL,
   mpp_suspect INTEGER NOT NULL DEFAULT 0,
   meta_json   TEXT NOT NULL DEFAULT '{}',
@@ -932,6 +938,7 @@ CREATE TABLE IF NOT EXISTS email_event (
 );
 CREATE INDEX IF NOT EXISTS idx_email_event_contact ON email_event(contact_id);
 CREATE INDEX IF NOT EXISTS idx_email_event_kind    ON email_event(kind);
+CREATE INDEX IF NOT EXISTS idx_email_event_brand   ON email_event(brand, kind);
 
 -- ── FIBONACCI GATE STATE ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS fib_gate (
@@ -945,6 +952,7 @@ CREATE TABLE IF NOT EXISTS fib_gate (
   last_bounce_pct    REAL,
   blocklist_hits     INTEGER NOT NULL DEFAULT 0,
   last_evaluated_at  TEXT,
+  updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
   notes              TEXT
 );
 INSERT OR IGNORE INTO fib_gate (id, level_idx, level, status) VALUES (1, 0, 5, 'ramping');
@@ -1242,4 +1250,41 @@ CREATE TABLE IF NOT EXISTS email_consent (
 );
 CREATE INDEX IF NOT EXISTS idx_email_consent_contact ON email_consent(contact_id);
 CREATE INDEX IF NOT EXISTS idx_email_consent_email ON email_consent(email);
+`;
+
+export const MIGRATION_0023 = `-- 0023_brand.sql
+-- Brand-separated subscribers: every contact/send/event carries a brand
+-- slug (mehyar.jobs | aimech.app | mehyar.us | rizza.app). One person can
+-- exist on several brands' lists: UNIQUE(email, brand).
+--
+-- IDEMPOTENT: every statement is safe to re-run (IF NOT EXISTS /
+-- OR IGNORE / ADD COLUMN error swallowed by the runner). NOTE: the
+-- email_contact UNIQUE(email,brand) rebuild is NOT in this runner script —
+-- D1 enforces FKs, so DROP+RENAME on a referenced parent SILENTLY DELETES
+-- child rows (ON DELETE CASCADE). The rebuild was applied to production
+-- directly; fresh databases get the new schema from MIGRATION_0017.
+
+-- ── BRAND REGISTRY ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS brand (
+  slug       TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  domain     TEXT NOT NULL,
+  from_email TEXT NOT NULL,
+  from_name  TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO brand (slug, name, domain, from_email, from_name) VALUES
+  ('mehyar.jobs', 'Mehyar Jobs', 'jobs.mehyar.us', 'hello@mehyar.us', 'Mehyar Jobs'),
+  ('aimech.app', 'AI Mechanic', 'aimech.app', 'hello@mehyar.us', 'AI Mechanic'),
+  ('mehyar.us', 'MehyarSoft', 'mehyar.us', 'info@mehyar.us', 'MehyarSoft'),
+  ('rizza.app', 'RIZZA', 'rizza.app', 'hello@mehyar.us', 'RIZZA');
+
+-- ── BRAND COLUMNS (ADD COLUMN only — never rebuild referenced tables) ──
+ALTER TABLE email_contact ADD COLUMN brand TEXT NOT NULL DEFAULT 'mehyar.jobs';
+CREATE INDEX IF NOT EXISTS idx_email_contact_brand_status ON email_contact(brand, status);
+ALTER TABLE email_send ADD COLUMN brand TEXT NOT NULL DEFAULT 'mehyar.jobs';
+CREATE INDEX IF NOT EXISTS idx_email_send_brand ON email_send(brand, status);
+ALTER TABLE email_event ADD COLUMN brand TEXT NOT NULL DEFAULT 'mehyar.jobs';
+CREATE INDEX IF NOT EXISTS idx_email_event_brand ON email_event(brand, kind);
+ALTER TABLE newsletter_subscriber ADD COLUMN brand TEXT NOT NULL DEFAULT 'mehyar.jobs';
 `;

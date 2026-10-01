@@ -186,7 +186,12 @@ export async function recordEmailEvent(db, email, rawKind, opts = {}) {
   const kind = normalizeEventKind(rawKind);
   const em = String(email || "").trim().toLowerCase();
   if (!kind || !isValidEmail(em)) return { ok: false, action: "ignored" };
-  const contact = await db.prepare("SELECT id, status FROM email_contact WHERE email = ?").bind(em).first();
+  // Brand-aware: a webhook may not carry the brand, so when several brand
+  // rows share one email, attribute to the most recently mailed one unless
+  // opts.brand pins it.
+  const contact = opts.brand
+    ? await db.prepare("SELECT id, brand, status FROM email_contact WHERE email = ? AND brand = ?").bind(em, opts.brand).first()
+    : await db.prepare("SELECT id, brand, status FROM email_contact WHERE email = ? ORDER BY last_sent_at DESC NULLS LAST LIMIT 1").bind(em).first();
   if (!contact) return { ok: false, action: "ignored" };
   const now = new Date().toISOString();
   const mppSuspect = kind === "open" && opts.mppSuspect === true ? 1 : 0;
@@ -213,8 +218,8 @@ export async function recordEmailEvent(db, email, rawKind, opts = {}) {
   }
 
   await db.prepare(
-    "INSERT INTO email_event (contact_id, kind, mpp_suspect, meta_json) VALUES (?, ?, ?, ?)"
-  ).bind(contact.id, kind, mppSuspect, JSON.stringify(meta)).run();
+    "INSERT INTO email_event (contact_id, brand, kind, mpp_suspect, meta_json) VALUES (?, ?, ?, ?, ?)"
+  ).bind(contact.id, contact.brand || "mehyar.jobs", kind, mppSuspect, JSON.stringify(meta)).run();
   await ensureEngagementRow(db, contact.id);
 
   if (kind === "hard_bounce" || kind === "complaint") {
@@ -369,7 +374,7 @@ function isSuperEngager(eng, now) {
 // floor(cap * LEGACY_RESERVE_FRAC) is set aside for fresh legacy contacts;
 // fresh contacts then fill the remainder of the cap. Total selected never
 // exceeds the level. Does NOT send — queueDailySends() does that.
-export async function buildDailyList(db, { now = new Date(), limit = null, env = {} } = {}) {
+export async function buildDailyList(db, { now = new Date(), limit = null, env = {}, brand = "mehyar.jobs" } = {}) {
   const gate = await getGate(db);
   const cap = gate.status === "paused" ? 0 : (limit || gate.level);
   const today = dayStr(now);
@@ -395,12 +400,13 @@ export async function buildDailyList(db, { now = new Date(), limit = null, env =
      FROM email_contact ec
      JOIN contact_engagement ce ON ce.contact_id = ec.id
      WHERE ec.status = 'active'
+       AND ec.brand = ?
        AND ce.engagement_band IN ('high', 'moderate')
        AND (ec.last_sent_at IS NULL OR substr(ec.last_sent_at, 1, 10) != ?)
        AND (ec.week_sent_count < ? OR ce.last_click_at >= ?)
      ORDER BY ce.last_click_at DESC NULLS LAST
      LIMIT ?`
-  ).bind(today, GATE.WEEKLY_CAP, daysAgo(7, now), engagedBudget).all().then(r => r.results || []);
+  ).bind(brand, today, GATE.WEEKLY_CAP, daysAgo(7, now), engagedBudget).all().then(r => r.results || []);
 
   // 2) At-risk: re-engagement variant only, winback_stage < 3.
   const engagedRemaining = engagedBudget - coreRows.length;
@@ -410,12 +416,13 @@ export async function buildDailyList(db, { now = new Date(), limit = null, env =
      FROM email_contact ec
      JOIN contact_engagement ce ON ce.contact_id = ec.id
      WHERE ec.status = 'active'
+       AND ec.brand = ?
        AND ce.engagement_band = 'at_risk'
        AND ce.winback_stage < ?
        AND (ec.last_sent_at IS NULL OR substr(ec.last_sent_at, 1, 10) != ?)
      ORDER BY ce.last_click_at DESC NULLS LAST
      LIMIT ?`
-  ).bind(GATE.WINBACK_MAX, today, engagedRemaining).all().then(r => r.results || []) : [];
+  ).bind(brand, GATE.WINBACK_MAX, today, engagedRemaining).all().then(r => r.results || []) : [];
 
   // 3) Fresh legacy contacts fill the remainder of the level cap.
   const freshRemaining = cap - coreRows.length - riskRows.length;
@@ -423,10 +430,10 @@ export async function buildDailyList(db, { now = new Date(), limit = null, env =
     `SELECT ec.*, 'fresh' AS engagement_band, NULL AS last_click_at, NULL AS last_open_at,
             0 AS sends_since_engagement, 0 AS winback_stage
      FROM email_contact ec
-     WHERE ec.status = 'pending' AND ec.sent_count = 0
+     WHERE ec.status = 'pending' AND ec.sent_count = 0 AND ec.brand = ?
      ORDER BY ec.imported_at DESC
      LIMIT ?`
-  ).bind(freshRemaining).all().then(r => r.results || []) : [];
+  ).bind(brand, freshRemaining).all().then(r => r.results || []) : [];
 
   const picked = [
     ...coreRows.map(r => ({ ...r, variant: "standard" })),
@@ -450,6 +457,7 @@ export async function buildDailyList(db, { now = new Date(), limit = null, env =
     list.push({
       contactId: r.id,
       email: r.email,
+      brand: r.brand || "mehyar.jobs",
       firstName: r.first_name,
       lastName: r.last_name,
       city: r.city,
@@ -1156,14 +1164,14 @@ export async function sendEmailViaEsp(env, { to, subject, html, text, provider, 
 
 // ── daily queue ──────────────────────────────────────────────────────
 
-export async function logEmailSend(db, { contactId, kind, template, variant, subject, providerUsed, status, error = null, meta = {} }) {
+export async function logEmailSend(db, { contactId, brand = "mehyar.jobs", kind, template, variant, subject, providerUsed, status, error = null, meta = {} }) {
   const now = new Date().toISOString();
   let metaJson = "{}";
   try { metaJson = JSON.stringify(meta || {}); } catch { /* keep '{}' */ }
   await db.prepare(
-    `INSERT INTO email_send (contact_id, kind, template, variant, subject, provider_used, status, sent_at, error, meta_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(contactId, kind, template, variant, subject, providerUsed, status, status === "sent" ? now : null, error, metaJson).run();
+    `INSERT INTO email_send (contact_id, brand, kind, template, variant, subject, provider_used, status, sent_at, error, meta_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(contactId, brand, kind, template, variant, subject, providerUsed, status, status === "sent" ? now : null, error, metaJson).run();
 }
 
 async function markSent(db, contact, now) {
@@ -1223,11 +1231,11 @@ export async function buildWeaveForSend(db, todayStr, appUrl, plan) {
 // meta_json.go_slug (and meta_json.tool for tool-spotlight) so
 // product-tagged events aggregate in the campaign report and opens/clicks
 // attribute to the day's dated campaign slug.
-export async function queueDailySends(db, env, { live = false, kind = "warmup", template = "daily_digest", now = new Date(), appUrl = "https://jobs.mehyar.us", signUnsub = null } = {}) {
+export async function queueDailySends(db, env, { live = false, kind = "warmup", template = "daily_digest", now = new Date(), appUrl = "https://jobs.mehyar.us", signUnsub = null, brand = "mehyar.jobs" } = {}) {
   const gateCheck = await preSendGateCheck(db, template);
   if (!gateCheck.ok) return { ok: false, blocked: "seed_test", reason: gateCheck.reason };
 
-  const { list, cap, gate, counts, blocked } = await buildDailyList(db, { now, env });
+  const { list, cap, gate, counts, blocked } = await buildDailyList(db, { now, env, brand });
   if (blocked) return { ok: false, blocked, cap };
 
   const todayStr = dayStr(now);
@@ -1306,7 +1314,7 @@ export async function queueDailySends(db, env, { live = false, kind = "warmup", 
     const personalization = await personalizeForContact(db, c);
     let unsubUrl = `${appUrl}/unsubscribe`;
     try {
-      if (signUnsub) unsubUrl = `${appUrl}/unsubscribe?token=${await signUnsub(c.email, env)}`;
+      if (signUnsub) unsubUrl = `${appUrl}/unsubscribe?token=${await signUnsub(c.email, env, c.brand || "mehyar.jobs")}`;
     } catch { /* fall back to plain link */ }
 
     let skel = pickSkeleton(c);
@@ -1333,7 +1341,8 @@ export async function queueDailySends(db, env, { live = false, kind = "warmup", 
       : { ok: true, dryRun: true, provider };
     const status = res.dryRun ? "dry_run" : res.ok ? "sent" : "failed";
     await logEmailSend(db, {
-      contactId: c.contactId, kind: skel === SKELETON.WINBACK ? "winback" : kind,
+      contactId: c.contactId, brand: c.brand || "mehyar.jobs",
+      kind: skel === SKELETON.WINBACK ? "winback" : kind,
       template: skel === SKELETON.DIGEST ? template : SKELETON_NAMES[skel],
       variant: c.variant, subject: rendered.subject,
       providerUsed: res.dryRun ? "dry_run" : provider, status,
@@ -1365,14 +1374,15 @@ export async function importEmailContacts(db, contacts) {
   let inserted = 0, skipped = 0;
   for (const c of contacts || []) {
     const email = String(c.email || "").trim().toLowerCase();
+    const brand = String(c.brand || "mehyar.jobs").trim().toLowerCase();
     if (!isValidEmail(email)) { skipped++; continue; }
     try {
       await db.prepare(
-        `INSERT INTO email_contact (email, status, source, first_name, last_name, city, state, role_title, provider, imported_at)
-         VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(email) DO NOTHING`
+        `INSERT INTO email_contact (email, brand, status, source, first_name, last_name, city, state, role_title, provider, imported_at)
+         VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(email, brand) DO NOTHING`
       ).bind(
-        email, c.source || "legacy", c.firstName || null, c.lastName || null,
+        email, brand, c.source || "legacy", c.firstName || null, c.lastName || null,
         c.city || null, c.state || null, c.roleTitle || null, providerOf(email),
         c.importedAt || new Date().toISOString()
       ).run();

@@ -35,7 +35,7 @@ run("npm run build");
 // This production D1 predates Wrangler's d1_migrations ledger. Historical
 // migrations are already present, so apply the new idempotent migration file
 // directly instead of replaying 0001-0006 against live columns.
-for (const mig of ["0007_daily_job_digest.sql", "0008_multiuser.sql", "0009_user_digest_log.sql", "0010_llm_review.sql", "0011_anon_free_run.sql", "0012_job_alerts.sql", "0013_growth_engine.sql", "0014_sms_funnel.sql", "0015_product_slots.sql", "0016_consent_table.sql", "0017_email_warmup.sql", "0018_product_catalog.sql", "0019_product_details.sql", "0020_email_send_meta.sql", "0021_campaign_plan.sql", "0022_landing_rotation.sql"]) {
+for (const mig of ["0007_daily_job_digest.sql", "0008_multiuser.sql", "0009_user_digest_log.sql", "0010_llm_review.sql", "0011_anon_free_run.sql", "0012_job_alerts.sql", "0013_growth_engine.sql", "0014_sms_funnel.sql", "0015_product_slots.sql", "0016_consent_table.sql", "0017_email_warmup.sql", "0018_product_catalog.sql", "0019_product_details.sql", "0020_email_send_meta.sql", "0021_campaign_plan.sql", "0022_landing_rotation.sql", "0023_brand.sql", "0024_warmup_tracking.sql"]) {
   try {
     run(`${WR} d1 execute mehyar-jobs --remote --config scanner-worker/wrangler.toml --file migrations/${mig}`, { CI: "true" });
   } catch (err) {

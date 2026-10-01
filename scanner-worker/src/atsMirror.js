@@ -99,10 +99,20 @@ function auditPrompt(resumeText, targetRole) {
 
 const REWRITE_SYSTEM = [
   "You are an executive resume writer. Rewrite the resume below applying every fix from its ATS audit:",
-  "- Keep EVERY fact, date, company name, title, and number exactly true. Improve wording only — never invent.",
-  "- Lead with a 2-3 line professional summary targeting the role.",
-  "- Start every experience bullet with a strong action verb; quantify wherever the original gives you numbers.",
-  "- Add a SKILLS section packing the role's keywords naturally.",
+  "- HONESTY IS THE HARD RULE. Never invent, infer, or embellish: no new skills, tools, languages,",
+  "  certifications, companies, titles, dates, or numbers that are not stated or clearly implied in the",
+  "  original. If the original says 'did various tasks', you may NOT rewrite it as 'spearheaded Java",
+  "  microservices with 90% efficiency gains'. A fabricated resume gets the candidate fired — treat every",
+  "  invented claim as a career-ending defect.",
+  "- Where a bullet needs a metric the original lacks, write a visible placeholder the candidate fills in:",
+  "  e.g. '• Shipped internal tooling adopted by [N] engineers, cutting deploy time by [X]%'.",
+  "- 'KEYWORDS TO WEAVE IN WHERE TRUTHFUL' means: use a keyword ONLY if the original resume evidences it",
+  "  (same skill, tool, or directly equivalent experience). Never claim a keyword the candidate never had.",
+  "  Missing keywords the candidate lacks go in a final line: 'KEYWORDS TO EARN: <comma list>'.",
+  "- Keep every real fact, date, company name, title, and number exactly as stated. Improve wording only.",
+  "- Lead with a 2-3 line professional summary targeting the role — built ONLY from the candidate's real background.",
+  "- Start every experience bullet with a strong action verb; quantify ONLY where the original gives you numbers.",
+  "- Add a SKILLS section packing the role's keywords naturally — truthful ones only.",
   "- Plain-text, ATS-safe layout ONLY:",
   "  FULL NAME (caps, first line)",
   "  City, ST | email | phone | linkedin url  (one line)",
@@ -211,3 +221,6 @@ export async function handleAtsMirror(request, env) {
     remaining: Math.max(0, ident.remaining - 1),
   });
 }
+
+// Exported for unit tests (prompt honesty rules).
+export { auditPrompt, rewritePrompt };

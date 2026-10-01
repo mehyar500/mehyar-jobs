@@ -108,6 +108,33 @@ export async function buildCampaignReport(db, dateStr, { smtp2goStats = null } =
   let cohortTotal = 0;
   for (const r of cohortRows) { cohortByStatus[r.status] = r.n; cohortTotal += r.n; }
 
+  // ── per-brand breakdown: subscribers by brand/status, sends+events by brand ──
+  const brandCohortRows = await db.prepare(
+    "SELECT brand, status, COUNT(*) AS n FROM email_contact GROUP BY brand, status"
+  ).all().then((r) => r.results || []).catch(() => []);
+  const brandSendRows = await db.prepare(
+    `SELECT brand, status, COUNT(*) AS n FROM email_send
+     WHERE coalesce(date(sent_at), date(created_at)) = ?
+     GROUP BY brand, status`
+  ).bind(dateStr).all().then((r) => r.results || []).catch(() => []);
+  const brandEventRows = await db.prepare(
+    `SELECT brand, kind, COUNT(*) AS n FROM email_event
+     WHERE date(created_at) = ?
+     GROUP BY brand, kind`
+  ).bind(dateStr).all().then((r) => r.results || []).catch(() => []);
+  const byBrand = {};
+  const brandOf = (b) => (byBrand[b] ||= { brand: b, subscribers: {}, sends: 0, sends_by_status: {}, opens: 0, clicks: 0, bounces: 0, complaints: 0, unsubscribes: 0 });
+  for (const r of brandCohortRows) brandOf(r.brand).subscribers[r.status] = r.n;
+  for (const r of brandSendRows) { const b = brandOf(r.brand); b.sends_by_status[r.status] = r.n; b.sends += r.n; }
+  for (const r of brandEventRows) {
+    const b = brandOf(r.brand);
+    if (r.kind === "open") b.opens = r.n;
+    else if (r.kind === "click") b.clicks = r.n;
+    else if (r.kind === "hard_bounce" || r.kind === "soft_bounce") b.bounces += r.n;
+    else if (r.kind === "complaint") b.complaints = r.n;
+    else if (r.kind === "unsubscribe") b.unsubscribes = r.n;
+  }
+
   return {
     ok: true,
     date: dateStr,
@@ -121,6 +148,7 @@ export async function buildCampaignReport(db, dateStr, { smtp2goStats = null } =
       open_rate: round6(openRate),
       bounce_rate: round6(bounceRate),
       complaint_rate: round6(complaintRate),
+      by_brand: byBrand,
     },
     emails: emailRows,
     offers: offerRows,
