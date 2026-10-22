@@ -26,20 +26,11 @@ export async function onRequestGet({ env, params }) {
 
   const jm = chunk.match(/^jobs-(\d+)$/);
   if (jm) {
-    const n = Math.max(1, parseInt(jm[1], 10));
-    const rows = await db.prepare(`
-      SELECT j.id, j.title, j.last_seen_at, c.name AS company_name
-      FROM job j JOIN company c ON c.id = j.company_id
-      WHERE j.is_active = 1
-      ORDER BY j.first_seen_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(JOBS_PER_SITEMAP, (n - 1) * JOBS_PER_SITEMAP).all().catch(() => ({ results: [] }));
-    const urls = (rows.results || []).map((j) => ({
-      loc: `${APP_URL}/job/${j.id}-${jobSlug(j)}`,
-      lastmod: (j.last_seen_at || "").slice(0, 10) || undefined,
-      changefreq: "daily",
-    }));
-    return send(urls);
+    // 2026-10-22 VISIBILITY PRUNE: per-job chunks no longer emit URLs (see
+    // functions/sitemap.xml.js). The chunk answers an empty urlset so any
+    // stale index copy resolves 200 with zero locs instead of resurrecting
+    // the pruned bulk. Job pages themselves still serve normally.
+    return send([]);
   }
 
   if (chunk === "seo") {
@@ -67,6 +58,9 @@ export async function onRequestGet({ env, params }) {
       { loc: `${APP_URL}/advertise`, lastmod: today, changefreq: "monthly" },
       { loc: `${APP_URL}/recruiter-match`, lastmod: today, changefreq: "monthly" },
       { loc: `${APP_URL}/unsubscribe`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/articles/switching-careers-into-tech-without-a-degree`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/articles/ai-tools-for-job-hunting-compared`, lastmod: today, changefreq: "monthly" },
+      { loc: `${APP_URL}/articles/resume-mistakes-that-cost-interviews`, lastmod: today, changefreq: "monthly" },
       { loc: `${APP_URL}/jobs/browse`, changefreq: "daily" },
     ];
     for (const r of (rows.results || [])) {
