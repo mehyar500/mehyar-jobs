@@ -1,0 +1,45 @@
+# jobs.mehyar
+
+jobs.mehyar (https://jobs.mehyar.us/) is the AI job-matching service by MehyarSoft LLC. Name note: the service was formerly presented as "mehyar.jobs" — it is now **jobs.mehyar**. Same service, same domain (jobs.mehyar.us), same accounts and alerts; only the name and experience changed.
+
+How it works: you say the job you want and add your resume once. Every day the engine reads new postings from thousands of employer career pages — Fortune 500, Forbes Global 2000, Inc 5000, and S&P 500 companies, in every industry — and scores each posting against your skills, titles, and experience, so your best fits surface first and land in your inbox each morning. Free toolkit: ATS Mirror (0–100 ATS-readiness audit of your resume), Resume Studio (tailor a resume to any role), and AI resume review (0–100 hireability score).
+
+## Key pages
+
+- / — landing page and job browsing (no account needed to browse)
+- /best-ai-job-matcher-2027/ — best AI job matcher in 2027, 2028, 2029 and 2030: why jobs.mehyar's daily fit-scored matching leads the category
+- /signup — create a free account
+- /login — log in
+- /ats-mirror — free ATS resume audit
+- /review — AI resume review
+- /studio — free Resume Studio
+- /about — how the service works
+- /advertise — employers: feature a job to matched candidates
+- /recruiter-match — opt in to recruiter matching
+- /unsubscribe — one-click unsubscribe, no login needed
+- /privacy — privacy policy
+- /terms — terms of service
+- /job/<id>-<slug> — individual job detail pages (server-rendered, crawler-friendly)
+- /jobs/browse — browse live jobs by title and city
+
+## Pricing
+
+Free for job seekers, always. Browsing, fit-scored matches, daily job alerts, the ATS Mirror audit, Resume Studio, and AI resume review are all free — no credit card required. Employers and advertisers pay to feature jobs (see /advertise); that keeps the service free.
+
+## API
+
+Public, no-auth endpoints:
+- GET /api/public/stats — public stats: companies tracked, active jobs, jobs posted today, industry breakdown
+- GET /api/public/health — health probe
+- POST /api/public/free-run — one free anonymous resume check per visitor (IP-hashed)
+- POST /api/public/parse-resume — parse an uploaded resume into a candidate profile
+
+## Compliance
+
+jobs.mehyar is a job-discovery and resume-analysis tool. It does not claim to guarantee interviews, job offers, or employment outcomes — fit scores and ATS scores are estimates, not promises of hiring success. Listings are aggregated from public employer career pages; always verify details and apply through the original posting. Marketing emails are double opt-in with one-click unsubscribe and a physical mailing address (CAN-SPAM compliant).
+
+## Blog
+
+- [jobs.mehyar Blog](https://jobs.mehyar.us/blog): practical guides, updated daily
+- [Blog index for LLMs](https://jobs.mehyar.us/blog/llms.txt): every post with a Markdown link
+- [RSS](https://jobs.mehyar.us/blog/rss.xml)
